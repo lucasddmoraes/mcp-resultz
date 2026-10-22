@@ -88,11 +88,13 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 ## Estado atual
 
 - Versão 1.0.0: testada localmente (38 verificações) contra a loja real do GDV, com escritas interceptadas.
-- Código no GitHub (`lucasddmoraes/mcp-resultz`), com `.gitignore` cobrindo `.dev.vars` e `lojas.json`.
-- Banco D1 `mcp-resultz` criado (região ENAM) e `database_id` preenchido no `wrangler.jsonc`.
-- Pendente: merge na `main`; importar o repositório na Cloudflare; cadastrar os segredos; verificar de fora
-  (raiz e token inválido).
-- Depois: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
+- No ar desde 22/10/2026: Worker `mcp-resultz` criado pela importação do repositório `lucasddmoraes/mcp-resultz`
+  (Workers Builds, branch `main`), banco D1 `mcp-resultz` (região ENAM), domínio `mcp.resultz.com.br`.
+- Segredos `ADMIN_TOKEN` e `WOO_*` cadastrados pelo Lucas no painel, com chaves novas geradas nas duas lojas.
+- Verificado de fora: raiz responde 200 "MCP Resultz ativo."; token inválido, `/.well-known/*` e área inexistente
+  respondem 404. O token inválido passa pelo D1, então o binding está funcionando.
+- Pendente: Lucas adicionar o próprio conector no claude.ai e fazer o primeiro teste real de escrita (criar um
+  cupom pelo conector e consultar o log).
 
 ## Próximos passos
 
