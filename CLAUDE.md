@@ -19,8 +19,8 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
   apontado por `LOJAS_JSON` (formato `{"gdv":{"ck":"","cs":""},"sh":{...}}`) ou variáveis `WOO_*`.
   Rodar os testes depois de qualquer mudança.
 - `test-offline.mjs`: testes sem acesso às lojas (`npm run test:offline`), com D1 e WooCommerce simulados em memória.
-  Cobre rotas, instruções, descrições, simulação/aplicação de preço e parcelas e log. Roda em qualquer lugar; usar
-  quando não houver chaves para o `test.mjs`.
+  Cobre rotas, instruções, descrições, simulação/aplicação de preço e parcelas, a área `sumare` inteira (API Softsy
+  simulada com dados fictícios), papéis e log. Roda em qualquer lugar; usar quando não houver chaves para o `test.mjs`.
 - `wrangler.jsonc`: configuração lida pela integração Git da Cloudflare no deploy (nome do Worker, D1, domínio).
 - `.dev.vars.example`: modelo de segredos para rodar localmente. O arquivo real `.dev.vars` nunca vai para o git.
 - `public/`: página da raiz (`index.html`, mostra "MCP Resultz ativo." e anuncia o favicon no `<head>`) e ícones
@@ -37,7 +37,8 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
 ## Configuração no Worker
 
 - Binding D1: `DB` (as tabelas `usuarios` e `log` são criadas sozinhas na primeira chamada).
-- Secrets: `ADMIN_TOKEN` (dono, mínimo 32 caracteres), `WOO_GDV_CK`, `WOO_GDV_CS`, `WOO_SH_CK`, `WOO_SH_CS`.
+- Secrets: `ADMIN_TOKEN` (dono, mínimo 32 caracteres), `WOO_GDV_CK`, `WOO_GDV_CS`, `WOO_SH_CK`, `WOO_SH_CS`,
+  `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré).
 - Variáveis opcionais: `ADMIN_NOME`, `BASE_URL`, `CUPOM_MAX_PCT_EDITOR` (50), `CUPOM_MAX_FIXO_EDITOR` (300),
   `CUPOM_MAX_USOS_EDITOR` (20), `EXCLUIR_EMAILS` (login@resultzads.com).
 
@@ -81,6 +82,21 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
   lento e estoura o limite de CPU do plano gratuito.
 - Pedidos do e-mail login@resultzads.com ficam fora dos relatórios.
 
+## Detalhes da Sumaré (área `sumare`)
+
+- API Softsy: `https://gateway-sumare.softsy.io/dash-captacao/api/integracao/v1`, Basic Auth. `GET /filtros` (códigos
+  de cursos, polos, áreas, turnos, concursos, tipos de ingresso, campanhas, etapas) e `GET /candidatos` (um registro
+  por inscrição; `tamanho` até 5000, `pagina`; filtros `etapas`, `status`, `cursos`, `polos`, `areas`, `turnos`,
+  `concursos`, `tiposIngresso`). Não há filtro de data nem de campanha no servidor: o Worker filtra localmente.
+- Volume medido em 22/10/2026: 2.235 registros (2,0 MB, ~11 ms só para ler o JSON); 512 convertidos (0,5 MB, ~2 ms).
+  Matrículas pedem só `etapas=CONVERTIDO`. Funil e inscrições leem a base inteira e ficam no limite de 10 ms de CPU
+  do plano gratuito; se aparecer erro de limite de CPU, usar o plano Workers Paid (o Lucas já autorizou).
+- Ferramentas: `sumare_matriculas` (leitor; matrículas ou inscrições por período, quebra, comparação),
+  `sumare_funil` (leitor; retrato por etapa/status), `sumare_opcoes` (leitor; valores de filtro) e
+  `sumare_lista_candidatos` (editor; dados pessoais, exige `motivo`, páginas de 250). O log guarda quem puxou,
+  motivo, filtros e quantidade, nunca os dados pessoais.
+- Registros de teste (parte local do e-mail = `teste`) ficam fora por padrão.
+
 ## Deploy
 
 Caminho oficial: integração Git da Cloudflare (Workers Builds). O Worker `mcp-resultz` fica conectado ao
@@ -116,7 +132,11 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   Google (`https://www.google.com/s2/favicons?domain=<host>&sz=64`). Em 22/10/2026 esse serviço já devolvia a ovelha
   para `resultz.com.br` e 404 (globo) para `mcp.resultz.com.br`. Por isso a raiz passou a ser uma página HTML com
   `<link rel="icon">`, que o Google precisa rastrear; a atualização do serviço pode levar dias.
+- Versão 1.2.0: área `sumare` (Dash de Captação). Testada com `test-offline.mjs` (40 verificações); contra a API real
+  só foi medido o volume, com a credencial antiga da skill, uma vez e sem guardar dados.
 - Pendente: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
+- Pendente: Lucas cadastrar `SUMARE_API_USER` e `SUMARE_API_PASS`, liberar a área `sumare` para quem precisa e
+  adicionar o conector `https://mcp.resultz.com.br/sumare/<token>`.
 
 ## Próximos passos
 
@@ -124,8 +144,8 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
    revogar nas lojas as três chaves antigas: GDV `...53e4` (woo-precos-parcelas), GDV `...a8d8` (relatorio-gdv) e
    Super Humanos `...1f44` (woo-precos-parcelas). Antes, conferir o último acesso de cada uma, porque outro sistema
    pode usar a mesma chave.
-2. Nova área `sumare` a partir da skill `sumare-dash-captacao` (API do Dash de Captação, gateway Softsy). Listas de
-   candidatos têm dados pessoais: registrar quem puxou cada lista.
+2. Remover a skill `sumare-dash-captacao` da conta do Lucas: a credencial da API está gravada no script dela. Se
+   possível, pedir à Softsy uma credencial nova para o Worker e desativar a antiga.
 3. Avaliar área `postiz` (agendamento de redes sociais) com trava de só rascunho para quem não é admin, ou usar o
    servidor MCP do próprio Postiz se cada pessoa tiver usuário lá.
 
