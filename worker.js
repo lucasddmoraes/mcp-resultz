@@ -17,7 +17,7 @@
  *   EXCLUIR_EMAILS (login@resultzads.com)
  */
 
-const VERSAO = "1.0.0";
+const VERSAO = "1.1.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -756,8 +756,17 @@ const FERRAMENTAS_LOJAS = [
       "em duas etapas obrigatórias: 1) chame com aplicar=false para gerar o plano e o codigo_confirmacao; 2) mostre o " +
       "plano ao usuário e, só com confirmação explícita, chame de novo com os mesmos parâmetros, aplicar=true e o " +
       "codigo_confirmacao. Use 'itens' para uma lista explícita, ou 'filtro' + 'regra' para uma categoria inteira. " +
-      "Regras: manter_parcela (muda a quantidade mantendo o valor da parcela, ex.: 5x para 4x), percentual (pct negativo " +
-      "= desconto), fixo (mesmo preço para todos) e so_parcelas (muda só a quantidade). Não altera preço promocional.",
+      "Regras: manter_parcela (muda a quantidade mantendo o valor da parcela, ex.: 5x para 4x; use com " +
+      "filtro.parcelas_atuais), percentual (pct negativo = desconto), fixo (mesmo preço para todos) e so_parcelas (muda " +
+      "só a quantidade). Não altera preço promocional. Parcelas vêm do plugin WooCommerce Parcelas: 'global' = o " +
+      "produto herda a configuração global do plugin; número = sobrescrita no próprio produto. Antes de simular, conte " +
+      "quantos produtos estão em cada caso e informe ao usuário: se todos herdam o global, mudar a quantidade é uma única " +
+      "alteração no wp-admin do plugin (afeta a loja inteira, confirme com o usuário) e não deve ser feita por aqui; " +
+      "se é misturado, definir parcelas_para sem parcelas_atuais grava sobrescrita nos que herdavam. O valor mínimo da " +
+      "parcela do plugin pode fazer a vitrine mostrar menos parcelas que o configurado. Ao mostrar o plano: produtos, " +
+      "faixas 'preço antes -> depois', quem herdava o global, quem tem promoção e quem ficou de fora com o motivo. " +
+      "Depois de aplicar, só declare sucesso se 'falhas' vier vazio, e peça para conferir a página pública de um " +
+      "produto. Para desfazer, use 'itens' com os valores antigos do plano (passando de novo por simulação).",
     entrada: {
       type: "object",
       properties: {
@@ -842,9 +851,12 @@ const FERRAMENTAS_LOJAS = [
           if (it.preco !== undefined && it.preco !== null && it.preco !== "") novo = centavos(it.preco);
           if (it.parcelas) novaQtd = parseInt(it.parcelas, 10);
         } else if (r.tipo === "manter_parcela") {
-          const de = qtd ? parseInt(qtd, 10) : 0;
-          if (!de || !r.parcelas_para) falha("manter_parcela exige filtro.parcelas_atuais e regra.parcelas_para.");
-          novo = Math.round((antigo / de) * r.parcelas_para);
+          if (!r.parcelas_para) falha("manter_parcela exige regra.parcelas_para.");
+          if (!qtd) {
+            deixar("herda o parcelamento global: não há parcela própria para manter (use itens ou so_parcelas)");
+            continue;
+          }
+          novo = Math.round((antigo / parseInt(qtd, 10)) * r.parcelas_para);
           novaQtd = parseInt(r.parcelas_para, 10);
         } else if (r.tipo === "percentual") {
           if (typeof r.pct !== "number") falha("percentual exige regra.pct (negativo = desconto).");
@@ -989,8 +1001,13 @@ const FERRAMENTAS_LOJAS = [
       "Lista itens vendidos num período, com filtro por produto (texto ou IDs) ou categoria. Por padrão considera só " +
       "pedidos Concluídos, Processando e Aguardando (exclui cancelados, reembolsados e falhos) e ignora pedidos de " +
       "e-mails internos da agência. Extrai o nome do aluno de e-mails @...g12.br; o nome de cobrança é do responsável. " +
-      "Devolve resumo completo e as linhas em páginas de 250 (use 'pagina' para as seguintes). Para planilha, junte " +
-      "todas as páginas e monte o arquivo do seu lado.",
+      "Devolve resumo completo e as linhas em páginas de 250 (use 'pagina' para as seguintes). Se o usuário não disser " +
+      "o ano ou período, pergunte antes: produtos se repetem todo ano. Para planilha, junte todas as páginas e monte " +
+      "um .xlsx do seu lado, aba 'Relatório', exatamente com as colunas Pedido, Data, Status, Método de Pagamento, " +
+      "Email, Aluno, Produto, Qtde, Valor (nessa ordem; Responsável e ID produto não entram), Valor como texto com 2 " +
+      "casas (ex.: '180.00'), cabeçalho em negrito, primeira linha congelada, larguras ajustadas, ordenado por data. " +
+      "No chat, mostre só o resumo (pedidos, itens, receita, por status, por produto, internos ignorados); nomes e " +
+      "e-mails ficam só na planilha.",
     entrada: {
       type: "object",
       properties: {
@@ -1379,6 +1396,11 @@ const AREAS = {
         "4. Nunca invente IDs, preços ou códigos: use o que as ferramentas devolverem.",
         "5. Relatórios trazem dados pessoais de famílias: use só para o fim pedido e não repita dados além do necessário.",
         "6. Responda em português do Brasil.",
+        "7. Toda leitura e alteração nas lojas passa por este conector, para ficar no log. Nunca use outro caminho (API " +
+          "direta, chave colada no chat, script no navegador logado no wp-admin). Se uma ferramenta falhar, informe o " +
+          "erro e pare.",
+        "8. O plugin WooCommerce Parcelas foi retirado do repositório do WordPress em 26/10/2025 e não recebe mais " +
+          "atualizações; continua funcionando. Só mencione se o assunto surgir.",
       ].join("\n"),
   },
 };
