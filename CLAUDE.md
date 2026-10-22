@@ -23,8 +23,9 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
   quando não houver chaves para o `test.mjs`.
 - `wrangler.jsonc`: configuração lida pela integração Git da Cloudflare no deploy (nome do Worker, D1, domínio).
 - `.dev.vars.example`: modelo de segredos para rodar localmente. O arquivo real `.dev.vars` nunca vai para o git.
-- `public/`: ícone do conector (`favicon.ico`, `icon.png`, `apple-touch-icon.png`), servido como static assets
-  direto pela Cloudflare, sem passar pelo `worker.js`. Gerados a partir de `icon.jpg` (original, 1000x1000).
+- `public/`: página da raiz (`index.html`, mostra "MCP Resultz ativo." e anuncia o favicon no `<head>`) e ícones
+  (`favicon.png` 96x96, `favicon.ico`, `icon.png`, `apple-touch-icon.png`), servidos como static assets direto pela
+  Cloudflare, sem passar pelo `worker.js`. Ícones gerados a partir de `icon.jpg` (original, 1000x1000).
   O `initialize` também anuncia `icon.png` em `serverInfo.icons`. Não colocar nada sensível em `public/`: tudo
   ali fica público.
 
@@ -111,8 +112,10 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 - Verificado de fora: raiz responde 200 "MCP Resultz ativo."; token inválido, `/.well-known/*` e área inexistente
   respondem 404. O token inválido passa pelo D1, então o binding está funcionando.
 - Conector do Lucas adicionado no claude.ai como "Resultz Lojas".
-- Ícone: o claude.ai não documenta de onde tira o ícone de conector personalizado; por isso o servidor oferece as
-  duas formas (favicon no domínio e `serverInfo.icons`).
+- Ícone: o claude.ai não usa `serverInfo.icons` de forma confiável; pelos relatos, usa o serviço de favicons do
+  Google (`https://www.google.com/s2/favicons?domain=<host>&sz=64`). Em 22/10/2026 esse serviço já devolvia a ovelha
+  para `resultz.com.br` e 404 (globo) para `mcp.resultz.com.br`. Por isso a raiz passou a ser uma página HTML com
+  `<link rel="icon">`, que o Google precisa rastrear; a atualização do serviço pode levar dias.
 - Pendente: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
 
 ## Próximos passos
