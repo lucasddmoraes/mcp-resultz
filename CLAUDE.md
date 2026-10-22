@@ -77,7 +77,7 @@ repositório `lucasddmoraes/mcp-resultz` e cada push na branch `main` faz build 
 - Não colar código no editor do painel: a próxima build sobrescreve.
 - Mudanças entram por branch + pull request. Merge na `main` = deploy em produção.
 - O nome do Worker no painel precisa ser igual ao `name` do `wrangler.jsonc` (`mcp-resultz`), senão a build falha.
-- `database_id` no `wrangler.jsonc` é o ID do banco D1 `mcp-resultz` (não é segredo). Criado pelo Lucas no painel.
+- `database_id` no `wrangler.jsonc` é o ID do banco D1 `mcp-resultz` (não é segredo).
 - `keep_vars` está ligado para não apagar variáveis criadas pelo painel.
 - Builds de branches que não são a `main` (Previews) ficam desligadas, para não existir outro endereço servindo o
   conector.
@@ -89,8 +89,9 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 
 - Versão 1.0.0: testada localmente (38 verificações) contra a loja real do GDV, com escritas interceptadas.
 - Código no GitHub (`lucasddmoraes/mcp-resultz`), com `.gitignore` cobrindo `.dev.vars` e `lojas.json`.
-- Pendente: Lucas criar o banco D1 `mcp-resultz` e passar o ID; preencher `database_id`; merge na `main`;
-  importar o repositório na Cloudflare; cadastrar os segredos; verificar de fora (raiz e token inválido).
+- Banco D1 `mcp-resultz` criado (região ENAM) e `database_id` preenchido no `wrangler.jsonc`.
+- Pendente: merge na `main`; importar o repositório na Cloudflare; cadastrar os segredos; verificar de fora
+  (raiz e token inválido).
 - Depois: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
 
 ## Próximos passos

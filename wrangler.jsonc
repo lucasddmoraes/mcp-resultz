@@ -9,7 +9,7 @@
     {
       "binding": "DB",
       "database_name": "mcp-resultz",
-      "database_id": "PREENCHER_COM_O_ID_DO_BANCO"
+      "database_id": "05e8705f-bc61-40e7-8d78-4bc670bd208e"
     }
   ],
   "routes": [{ "pattern": "mcp.resultz.com.br", "custom_domain": true }],
