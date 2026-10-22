@@ -13,5 +13,7 @@
     }
   ],
   "routes": [{ "pattern": "mcp.resultz.com.br", "custom_domain": true }],
+  // Ícones (favicon.ico, icon.png) servidos direto pela Cloudflare, sem passar pelo worker.js
+  "assets": { "directory": "./public" },
   "observability": { "enabled": true }
 }
