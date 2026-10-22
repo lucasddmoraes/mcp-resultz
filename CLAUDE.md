@@ -18,11 +18,11 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
   das lojas e intercepta toda escrita (POST/PUT/DELETE), então não altera nada em produção. Chaves: arquivo
   apontado por `LOJAS_JSON` (formato `{"gdv":{"ck":"","cs":""},"sh":{...}}`) ou variáveis `WOO_*`.
   Rodar os testes depois de qualquer mudança.
+- `test-offline.mjs`: testes sem acesso às lojas (`npm run test:offline`), com D1 e WooCommerce simulados em memória.
+  Cobre rotas, instruções, descrições, simulação/aplicação de preço e parcelas e log. Roda em qualquer lugar; usar
+  quando não houver chaves para o `test.mjs`.
 - `wrangler.jsonc`: configuração lida pela integração Git da Cloudflare no deploy (nome do Worker, D1, domínio).
 - `.dev.vars.example`: modelo de segredos para rodar localmente. O arquivo real `.dev.vars` nunca vai para o git.
-- `skills/`: versões das skills `woo-precos-parcelas` e `relatorio-gdv` que usam este conector. Sem chave, sem
-  script de acesso às lojas e sem arquivo de credencial; o script do relatório só monta o .xlsx a partir da
-  resposta do conector ou de um CSV. Distribuir ao time como .zip (uma pasta por skill).
 - `public/`: ícone do conector (`favicon.ico`, `icon.png`, `apple-touch-icon.png`), servido como static assets
   direto pela Cloudflare, sem passar pelo `worker.js`. Gerados a partir de `icon.jpg` (original, 1000x1000).
   O `initialize` também anuncia `icon.png` em `serverInfo.icons`. Não colocar nada sensível em `public/`: tudo
@@ -49,6 +49,13 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
    vezes e garante que o aplicado é o que foi mostrado.
 5. Tokens nunca vão para o log nem para o banco em texto puro (só o SHA-256).
 6. Credenciais dos sistemas só existem nos secrets do Worker. Nunca em skill, código ou chat.
+
+## Regras de negócio ficam no servidor
+
+As regras de uso (fluxo de preço e parcelas, plugin WooCommerce Parcelas, colunas e formato do relatório, cuidado
+com dados de famílias, proibição de outro caminho até as lojas) estão nas `instrucoes` da área e na `descricao` de
+cada ferramenta, no `worker.js`. O Claude de cada pessoa recebe isso ao conectar. Não há skill para distribuir: mudou
+uma regra, muda aqui, e o merge publica para todo mundo.
 
 ## Papéis
 
@@ -95,6 +102,9 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 ## Estado atual
 
 - Versão 1.0.0: testada localmente (38 verificações) contra a loja real do GDV, com escritas interceptadas.
+- Versão 1.1.0: regras das antigas skills `woo-precos-parcelas` e `relatorio-gdv` levadas para instruções e
+  descrições; `manter_parcela` deixa de falhar quando um produto herda o parcelamento global (vai para `fora`).
+  Testada com `test-offline.mjs`; o `test.mjs` não rodou por falta de chaves.
 - No ar desde 22/10/2026: Worker `mcp-resultz` criado pela importação do repositório `lucasddmoraes/mcp-resultz`
   (Workers Builds, branch `main`), banco D1 `mcp-resultz` (região ENAM), domínio `mcp.resultz.com.br`.
 - Segredos `ADMIN_TOKEN` e `WOO_*` cadastrados pelo Lucas no painel, com chaves novas geradas nas duas lojas.
@@ -107,17 +117,13 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 
 ## Próximos passos
 
-1. Skills `woo-precos-parcelas` e `relatorio-gdv` reescritas em `skills/` para usar o conector. Falta: o Lucas
-   substituir as skills antigas na conta dele e distribuir ao time; depois revogar nas lojas as três chaves
-   antigas (`lojas.json` da woo-precos-parcelas: uma do GDV e uma do Super Humanos; `config.json` da
-   relatorio-gdv: outra do GDV).
-2. Ponto conhecido no `worker.js` (não alterado): em `alterar_preco_parcelas` com regra `manter_parcela` sem
-   `filtro.parcelas_atuais`, um único produto herdando o parcelamento global faz a simulação inteira falhar com
-   mensagem genérica. A skill contorna exigindo `parcelas_atuais`; se for corrigir, pular esses produtos com
-   motivo em `fora`.
-3. Nova área `sumare` a partir da skill `sumare-dash-captacao` (API do Dash de Captação, gateway Softsy). Listas de
+1. Remover da conta do Lucas as skills antigas `woo-precos-parcelas` e `relatorio-gdv` (têm chaves dentro). Depois
+   revogar nas lojas as três chaves antigas: GDV `...53e4` (woo-precos-parcelas), GDV `...a8d8` (relatorio-gdv) e
+   Super Humanos `...1f44` (woo-precos-parcelas). Antes, conferir o último acesso de cada uma, porque outro sistema
+   pode usar a mesma chave.
+2. Nova área `sumare` a partir da skill `sumare-dash-captacao` (API do Dash de Captação, gateway Softsy). Listas de
    candidatos têm dados pessoais: registrar quem puxou cada lista.
-4. Avaliar área `postiz` (agendamento de redes sociais) com trava de só rascunho para quem não é admin, ou usar o
+3. Avaliar área `postiz` (agendamento de redes sociais) com trava de só rascunho para quem não é admin, ou usar o
    servidor MCP do próprio Postiz se cada pessoa tiver usuário lá.
 
 ## Limites da Cloudflare
