@@ -1,0 +1,16 @@
+{
+  // Configuração de deploy do MCP Resultz (usada pelo Claude Code com `npx wrangler deploy`)
+  "name": "mcp-resultz",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "keep_vars": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mcp-resultz",
+      "database_id": "PREENCHER_COM_O_ID_DO_BANCO"
+    }
+  ],
+  "routes": [{ "pattern": "mcp.resultz.com.br", "custom_domain": true }],
+  "observability": { "enabled": true }
+}
