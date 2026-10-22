@@ -13,7 +13,11 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
 
 ## Arquivos
 
-- `worker.js`: o servidor inteiro.
+- `worker.js`: o servidor (roteamento, MCP, log, acessos e as áreas `lojas` e `sumare`).
+- `midia.js`: área `midia` (tagueamento e mídia paga), em módulo próprio por ser grande. Recebe do `worker.js` os
+  utilitários (`falha`, `norm`, `P_MOTIVO`, `corta`) em `criarAreaMidia(...)`.
+- `test-midia.mjs`: testes da área `midia` com Google, Google Ads, GA4, GTM, Meta, Cloudflare e um site de exemplo
+  simulados em memória (inclusive a assinatura do JWT da conta de serviço). Roda junto no `npm run test:offline`.
 - `test.mjs`: bateria de testes local (Node 22+, `node test.mjs`). Simula o D1 com `node:sqlite`, lê dados reais
   das lojas e intercepta toda escrita (POST/PUT/DELETE), então não altera nada em produção. Chaves: arquivo
   apontado por `LOJAS_JSON` (formato `{"gdv":{"ck":"","cs":""},"sh":{...}}`) ou variáveis `WOO_*`.
@@ -26,6 +30,7 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
 - `public/`: página da raiz (`index.html`, mostra "MCP Resultz ativo." e anuncia o favicon no `<head>`) e ícones
   (`favicon.png` 96x96, `favicon.ico`, `icon.png`, `apple-touch-icon.png`), servidos como static assets direto pela
   Cloudflare, sem passar pelo `worker.js`. Ícones gerados a partir de `icon.jpg` (original, 1000x1000).
+  `public/marca/` tem o logo e o selo da Resultz usados nos relatórios de mídia.
   O `initialize` também anuncia `icon.png` em `serverInfo.icons`. Não colocar nada sensível em `public/`: tudo
   ali fica público.
 
@@ -39,6 +44,11 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
 - Binding D1: `DB` (as tabelas `usuarios` e `log` são criadas sozinhas na primeira chamada).
 - Secrets: `ADMIN_TOKEN` (dono, mínimo 32 caracteres), `WOO_GDV_CK`, `WOO_GDV_CS`, `WOO_SH_CK`, `WOO_SH_CS`,
   `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré).
+- Secrets da área `midia`: `GOOGLE_SA_JSON` (JSON inteiro da chave da conta de serviço, ou o mesmo em base64),
+  `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (MCC,
+  só números), `META_ACCESS_TOKEN` (usuário do sistema da BM da Resultz) e `CLOUDFLARE_API_TOKEN` (leitura de
+  zonas/Pages e SELECT no D1 de leads dos sites). Opcionais: `GOOGLE_ADS_API_VERSION`, `GOOGLE_ADS_DEVELOPER_TOKEN`,
+  `META_API_VERSION` (v23.0).
 - Variáveis opcionais: `ADMIN_NOME`, `BASE_URL`, `CUPOM_MAX_PCT_EDITOR` (50), `CUPOM_MAX_FIXO_EDITOR` (300),
   `CUPOM_MAX_USOS_EDITOR` (20), `EXCLUIR_EMAILS` (login@resultzads.com).
 
@@ -97,6 +107,33 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
   motivo, filtros e quantidade, nunca os dados pessoais.
 - Registros de teste (parte local do e-mail = `teste`) ficam fora por padrão.
 
+## Detalhes da Mídia (área `midia`)
+
+Portada da skill `resultzads/skilltagueamento` (tagueamento + auditoria-midia), que rodava em Python pelo GitHub
+Actions. Aqui o método (checklist, padrões de UTM e de evento de lead, severidades, saúde, prioridades P0 a P2,
+estrutura e identidade do relatório) está nas instruções da área e nas descrições das ferramentas.
+
+- Fase 1 (atual): só leitura nas plataformas. Escopos do Google só de leitura (`analytics.readonly`,
+  `tagmanager.readonly`). A única escrita é a ficha do cliente no D1 do MCP (`midia_salvar_cliente`).
+- Fichas de clientes: tabela `midia_clientes` (criada sozinha), uma linha por slug com a ficha em JSON (seções
+  cliente, site, google, meta, cloudflare, leads e histórico). Só IDs; a ferramenta recusa ficha com cara de token.
+  As seções `cloudflare` e `leads` só o admin altera: elas definem qual banco é consultado com o token da agência
+  (um editor poderia apontar para outro D1 da conta, inclusive o do próprio MCP).
+- Respostas do Meta passam por um filtro que remove qualquer campo de token (ex.: tokens de páginas em `me/accounts`)
+  e erros têm `access_token` mascarado.
+- Ferramentas (leitor): `midia_clientes`, `midia_acessos`, `midia_descobrir`, `tag_site`, `tag_publicado`, `tag_ga4`,
+  `tag_google_ads`, `tag_meta`, `midia_meta`, `midia_google`, `midia_leads`. Editor: `midia_salvar_cliente`,
+  `midia_consulta_google_ads` (GAQL, só SELECT) e `midia_consulta_meta` (Graph, só GET).
+- Coletas: períodos de 30d, 30d anteriores e 90d, terminando ontem (Brasília). Uma parte que falha (sem acesso,
+  API recusou) vira item em `falhas` e não derruba o resto. `partes` limita o que é coletado.
+- Leads reais: `leads.consulta_periodo` da ficha (um único SELECT com origem, midia, campanha, n e `{inicio}`/`{fim}`)
+  rodado pela API da Cloudflare no D1 do site do cliente. Só contagens saem; colunas extras são descartadas.
+- Google Ads: a versão da API é descoberta sozinha (v26 para trás, uma sondagem por vez) e fica em cache.
+- PDF: o Worker não gera. O Claude de cada pessoa monta o relatório (Artifact ou arquivo) com a identidade descrita
+  nas instruções e o logo de `https://mcp.resultz.com.br/marca/`.
+- Fase 2 (correções de tagueamento: GTM em espaço novo sem publicar sem confirmação, eventos-chave do GA4, conversão
+  principal do Ads) e fase 3 (alterações em campanhas com limites por papel e acesso por cliente) ainda não existem.
+
 ## Deploy
 
 Caminho oficial: integração Git da Cloudflare (Workers Builds). O Worker `mcp-resultz` fica conectado ao
@@ -132,11 +169,17 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   Google (`https://www.google.com/s2/favicons?domain=<host>&sz=64`). Em 22/10/2026 esse serviço já devolvia a ovelha
   para `resultz.com.br` e 404 (globo) para `mcp.resultz.com.br`. Por isso a raiz passou a ser uma página HTML com
   `<link rel="icon">`, que o Google precisa rastrear; a atualização do serviço pode levar dias.
-- Versão 1.2.0: área `sumare` (Dash de Captação). Testada com `test-offline.mjs` (40 verificações); contra a API real
-  só foi medido o volume, com a credencial antiga da skill, uma vez e sem guardar dados.
+- Versão 1.2.0: área `sumare` (Dash de Captação). Testada com `test-offline.mjs` (40 verificações) e, em 22/10/2026,
+  em produção pelo conector "Resultz Sumaré" do Lucas: matrículas com comparação, funil, inscrições por semana e
+  filtro de curso por nome funcionaram no plano gratuito, sem erro de CPU (base com ~2.200 candidatos). Lista de
+  candidatos ainda não usada em produção.
 - Pendente: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
-- Pendente: Lucas cadastrar `SUMARE_API_USER` e `SUMARE_API_PASS`, liberar a área `sumare` para quem precisa e
-  adicionar o conector `https://mcp.resultz.com.br/sumare/<token>`.
+- Secrets `SUMARE_API_USER` e `SUMARE_API_PASS` cadastrados pelo Lucas; conector "Resultz Sumaré" adicionado.
+- Versão 1.3.0: área `midia`, fase 1 (só leitura). Testada com `test-midia.mjs` (53 verificações, APIs simuladas) e no
+  motor da Cloudflare (`wrangler dev`): ferramentas, ficha no D1, logo e assinatura do JWT da conta de serviço aceita
+  pelo Google. Ainda não testada com as credenciais reais da agência.
+- Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
+  áreas da pessoa, porque a lista é substituída).
 
 ## Próximos passos
 
@@ -146,13 +189,20 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
    pode usar a mesma chave.
 2. Remover a skill `sumare-dash-captacao` da conta do Lucas: a credencial da API está gravada no script dela. Se
    possível, pedir à Softsy uma credencial nova para o Worker e desativar a antiga.
-3. Avaliar área `postiz` (agendamento de redes sociais) com trava de só rascunho para quem não é admin, ou usar o
+3. Mídia, fase 1: Lucas cadastrar os secrets da área `midia`, adicionar o conector `/midia/<token>`, cadastrar as fichas
+   (a do Colégio Super Humanos está em `resultzads/skilltagueamento/clientes/`) e validar cada ferramenta contra as
+   contas reais.
+4. Mídia, fase 2 (correções de tagueamento) e fase 3 (alterações em campanhas), nessa ordem, depois da fase 1 validada.
+5. O repositório `resultzads/skilltagueamento` pode ser apagado quando a fase 1 estiver validada com as contas reais e
+   as fichas e auditorias que valem guardar (pastas `clientes/` e `auditorias/`) estiverem migradas. Antes, revogar
+   as credenciais guardadas nos segredos dele, se não forem as mesmas cadastradas no Worker.
+6. Avaliar área `postiz` (agendamento de redes sociais) com trava de só rascunho para quem não é admin, ou usar o
    servidor MCP do próprio Postiz se cada pessoa tiver usuário lá.
 
 ## Limites da Cloudflare
 
-Plano gratuito: 10 ms de CPU e 50 subrequests externos por chamada. Relatórios grandes (categoria inteira, ano
-inteiro) passam disso; nesse caso, plano Workers Paid.
+Plano Workers Paid ativo (confirmado pelo Lucas em 22/10/2026): bem mais CPU e subrequests por chamada que o
+gratuito (10 ms e 50). A área `midia` depende dele.
 
 ## Convenções
 

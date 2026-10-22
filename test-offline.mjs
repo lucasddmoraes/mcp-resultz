@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.2.0", "versão 1.2.0");
+ok(ini.serverInfo.version === "1.3.0", "versão 1.3.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
