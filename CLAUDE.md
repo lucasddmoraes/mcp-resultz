@@ -132,11 +132,14 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   Google (`https://www.google.com/s2/favicons?domain=<host>&sz=64`). Em 22/10/2026 esse serviço já devolvia a ovelha
   para `resultz.com.br` e 404 (globo) para `mcp.resultz.com.br`. Por isso a raiz passou a ser uma página HTML com
   `<link rel="icon">`, que o Google precisa rastrear; a atualização do serviço pode levar dias.
-- Versão 1.2.0: área `sumare` (Dash de Captação). Testada com `test-offline.mjs` (40 verificações); contra a API real
-  só foi medido o volume, com a credencial antiga da skill, uma vez e sem guardar dados.
+- Versão 1.2.0: área `sumare` (Dash de Captação). Testada com `test-offline.mjs` (40 verificações) e, em 22/10/2026,
+  em produção pelo conector "Resultz Sumaré" do Lucas: matrículas com comparação, funil, inscrições por semana e
+  filtro de curso por nome funcionaram no plano gratuito, sem erro de CPU (base com ~2.200 candidatos). Lista de
+  candidatos ainda não usada em produção.
 - Pendente: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
-- Pendente: Lucas cadastrar `SUMARE_API_USER` e `SUMARE_API_PASS`, liberar a área `sumare` para quem precisa e
-  adicionar o conector `https://mcp.resultz.com.br/sumare/<token>`.
+- Secrets `SUMARE_API_USER` e `SUMARE_API_PASS` cadastrados pelo Lucas; conector "Resultz Sumaré" adicionado.
+- Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
+  áreas da pessoa, porque a lista é substituída).
 
 ## Próximos passos
 
