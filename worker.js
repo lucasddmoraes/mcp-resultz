@@ -4,6 +4,7 @@
  *
  * Endereço de cada conector:  https://mcp.resultz.com.br/<area>/<token>
  * Áreas disponíveis:          lojas (WooCommerce dos colégios GDV e Super Humanos)
+ *                              sumare (Dash de Captação da Sumaré, API Softsy)
  *
  * Binding exigido:
  *   DB   banco D1 (as tabelas são criadas sozinhas na primeira chamada)
@@ -11,18 +12,19 @@
  *   ADMIN_TOKEN                       token do dono, mínimo 32 caracteres, só letras e números
  *   WOO_GDV_CK, WOO_GDV_CS            chave da API REST da loja GDV (Leitura/Escrita)
  *   WOO_SH_CK,  WOO_SH_CS             chave da API REST da loja Super Humanos (Leitura/Escrita)
+ *   SUMARE_API_USER, SUMARE_API_PASS  usuário e senha (Basic) da API do Dash de Captação da Sumaré
  * Variáveis opcionais:
  *   ADMIN_NOME (Lucas), BASE_URL (https://mcp.resultz.com.br),
  *   CUPOM_MAX_PCT_EDITOR (50), CUPOM_MAX_FIXO_EDITOR (300), CUPOM_MAX_USOS_EDITOR (20),
  *   EXCLUIR_EMAILS (login@resultzads.com)
  */
 
-const VERSAO = "1.1.0";
+const VERSAO = "1.2.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const ALFA36 = "abcdefghijklmnopqrstuvwxyz0123456789";
-const NOMES_AREAS = ["lojas"]; // ao criar uma área nova em AREAS, inclua o nome aqui
+const NOMES_AREAS = ["lojas", "sumare"]; // ao criar uma área nova em AREAS, inclua o nome aqui
 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
@@ -311,7 +313,7 @@ async function chamarFerramenta(p, c) {
       if (!LOJAS[args.loja]) falha(`Loja inválida: ${args.loja}. Use: ${Object.keys(LOJAS).join(", ")}`);
       if (!temLoja(c.usuario, args.loja)) falha(`${c.usuario.nome} não tem acesso à loja ${args.loja}.`);
     }
-    if (f.tipo === "escrita" && !String(args.motivo || "").trim()) {
+    if ((f.tipo === "escrita" || f.exigeMotivo) && !String(args.motivo || "").trim()) {
       falha("Informe o motivo: o pedido do usuário, nas palavras dele.");
     }
     const r = await f.executar(args, c);
@@ -1157,6 +1159,383 @@ const FERRAMENTAS_LOJAS = [
   },
 ];
 
+/* ------------------------------------------------------------------ Sumaré (Dash de Captação, API Softsy) */
+
+const SUMARE_API = "https://gateway-sumare.softsy.io/dash-captacao/api/integracao/v1";
+// argumento da ferramenta -> [lista em /filtros, parâmetro de /candidatos]
+const SUMARE_FILTROS = {
+  polo: ["polos", "polos"],
+  curso: ["cursos", "cursos"],
+  area: ["areas", "areas"],
+  tipo_ingresso: ["tiposIngresso", "tiposIngresso"],
+  turno: ["turnos", "turnos"],
+  concurso: ["concursos", "concursos"],
+  etapa: ["etapas", "etapas"],
+};
+const SUMARE_CHAVES = {
+  curso: (x) => x.nomeCurso,
+  curso_codigo: (x) => x.curso,
+  polo: (x) => x.nomePolo,
+  area: (x) => x.area,
+  tipo_ingresso: (x) => x.tipoIngresso,
+  turno: (x) => x.descricaoTurno,
+  concurso: (x) => x.concurso,
+  campanha: (x) => x.campanha,
+  status: (x) => x.statusDescricao,
+  etapa: (x) => x.etapa,
+};
+const SUMARE_COLUNAS = [
+  "candidato", "nome", "email", "whatsapp", "cpf", "nomeCurso", "descricaoTurno", "nomePolo", "area", "tipoIngresso",
+  "concurso", "campanha", "etapa", "statusDescricao", "diasParado", "dtInscricao", "dtAssinaturaContrato", "dtMatricula",
+  "qtdTentativas", "ultimaTentativaTipo", "ultimaTentativaData", "ultimaTentativaVencimento", "aluno",
+];
+
+async function sumare(env, caminho, query = {}) {
+  if (!env.SUMARE_API_USER || !env.SUMARE_API_PASS) {
+    falha("A credencial da API da Sumaré não está configurada no servidor (SUMARE_API_USER / SUMARE_API_PASS).");
+  }
+  const url = new URL(`${SUMARE_API}/${caminho}`);
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+  }
+  const resp = await fetch(url.toString(), {
+    headers: {
+      Authorization: "Basic " + btoa(`${env.SUMARE_API_USER}:${env.SUMARE_API_PASS}`),
+      Accept: "application/json",
+      "User-Agent": "Resultz-MCP/" + VERSAO,
+    },
+  });
+  const bruto = await resp.text();
+  if (resp.status === 401) falha("A API da Sumaré recusou a credencial (401). Ela pode ter sido trocada: avise o Lucas.");
+  if (!resp.ok) falha(`A API da Sumaré respondeu ${resp.status}: ${bruto.slice(0, 200)}`);
+  try {
+    return JSON.parse(bruto);
+  } catch {
+    falha("Resposta inesperada da API da Sumaré (não veio JSON).");
+  }
+}
+
+let sumareFiltrosCache = null;
+async function sumareFiltros(env) {
+  if (sumareFiltrosCache && Date.now() - sumareFiltrosCache.em < 10 * 60 * 1000) return sumareFiltrosCache.dados;
+  const dados = await sumare(env, "filtros");
+  sumareFiltrosCache = { em: Date.now(), dados };
+  return dados;
+}
+
+const valores = (v) => (Array.isArray(v) ? v.map(String).filter(Boolean) : lista(v));
+const opcaoSumare = (o) =>
+  typeof o === "string"
+    ? { codigo: o, descricao: o }
+    : { codigo: String(o.codigo ?? o.id ?? ""), descricao: String(o.descricao ?? o.nome ?? o.codigo ?? "") };
+
+function sumareResolver(valor, opcoes, rotulo) {
+  const out = new Set();
+  for (const v of valores(valor)) {
+    const exatos = opcoes.filter((o) => norm(o.codigo) === norm(v) || norm(o.descricao) === norm(v));
+    const achados = exatos.length ? exatos : opcoes.filter((o) => norm(o.descricao).includes(norm(v)));
+    if (!achados.length) {
+      const nomes = [...new Set(opcoes.map((o) => o.descricao))].sort();
+      falha(`"${v}" não encontrado em ${rotulo}. Opções: ${nomes.slice(0, 80).join("; ")}`);
+    }
+    for (const o of achados) out.add(o.codigo);
+  }
+  return [...out];
+}
+
+const ehTesteSumare = (x) => String(x.email || "").toLowerCase().split("@")[0] === "teste";
+
+// Busca candidatos com os filtros da ferramenta. 'fixos' sobrescreve parâmetros (ex.: etapas=CONVERTIDO).
+async function sumareCandidatos(c, a, fixos = {}) {
+  const filtros = await sumareFiltros(c.env);
+  const query = { tamanho: 5000 };
+  for (const [arg, [chave, param]] of Object.entries(SUMARE_FILTROS)) {
+    if (valores(a[arg]).length) {
+      query[param] = sumareResolver(a[arg], (filtros[chave] || []).map(opcaoSumare), chave).join(",");
+    }
+  }
+  if (valores(a.status).length) query.status = valores(a.status).map((x) => x.toUpperCase()).join(",");
+  Object.assign(query, fixos);
+
+  const itens = [];
+  let meta = {};
+  for (let pagina = 1; pagina <= 10; pagina++) {
+    meta = await sumare(c.env, "candidatos", { ...query, pagina });
+    itens.push(...(meta.itens || []));
+    if (pagina >= (meta.totalPaginas || 1)) break;
+  }
+  const testes = itens.filter(ehTesteSumare).length;
+  let lst = a.incluir_testes ? itens : itens.filter((x) => !ehTesteSumare(x));
+  if (valores(a.campanha).length) {
+    const alvo = valores(a.campanha).map(norm);
+    lst = lst.filter((x) => alvo.some((v) => norm(x.campanha).includes(v)));
+  }
+  if (a.dias_parado_min !== undefined && a.dias_parado_min !== null) {
+    lst = lst.filter((x) => (x.diasParado || 0) >= Number(a.dias_parado_min));
+  }
+  const { tamanho, ...aplicados } = query;
+  if (valores(a.campanha).length) aplicados.campanha = valores(a.campanha).join(",");
+  return {
+    itens: lst,
+    testes: a.incluir_testes ? 0 : testes,
+    base: String(meta.dadosDe || "").slice(0, 16).replace("T", " "),
+    filtros: aplicados,
+  };
+}
+
+const hojeBrasilia = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+
+function sumarePeriodo(a) {
+  const hoje = hojeBrasilia();
+  if (a.mes) {
+    if (!/^\d{4}-\d{2}$/.test(String(a.mes))) falha("mes no formato AAAA-MM.");
+    const [y, m] = a.mes.split("-").map(Number);
+    const ini = `${a.mes}-01`;
+    const fim = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    return [ini, ini <= hoje && hoje < fim ? hoje : fim];
+  }
+  if (a.data_inicio) {
+    if (!dataValida(a.data_inicio) || (a.data_fim && !dataValida(a.data_fim))) falha("Datas no formato AAAA-MM-DD.");
+    return [a.data_inicio, a.data_fim || hoje];
+  }
+  return [hoje.slice(0, 8) + "01", hoje];
+}
+
+function sumareQuebra(itens, detalhe, campo) {
+  let chave;
+  if (detalhe === "dia") chave = (x) => String(x[campo] || "").slice(0, 10);
+  else if (detalhe === "semana") {
+    chave = (x) => {
+      const d = new Date(String(x[campo] || "").slice(0, 10) + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // segunda-feira da semana
+      return d.toISOString().slice(0, 10);
+    };
+  } else chave = (x) => SUMARE_CHAVES[detalhe](x) || "(sem informação)";
+  const cont = {};
+  for (const x of itens) {
+    const k = chave(x);
+    cont[k] = (cont[k] || 0) + 1;
+  }
+  const pares = Object.entries(cont);
+  pares.sort(detalhe === "dia" || detalhe === "semana" ? (p, q) => p[0].localeCompare(q[0]) : (p, q) => q[1] - p[1]);
+  return pares.map(([valor, total]) => ({ [detalhe]: valor, total }));
+}
+
+const P_TEXTO_FILTRO = (rotulo) => ({
+  type: "string",
+  description: `${rotulo}: nome (ou parte, sem acento) ou código; vários separados por vírgula`,
+});
+const SUMARE_FILTROS_ENTRADA = {
+  polo: P_TEXTO_FILTRO("Polo"),
+  curso: P_TEXTO_FILTRO("Curso (um curso pode ter vários códigos; o nome pega todos)"),
+  area: P_TEXTO_FILTRO("Área"),
+  tipo_ingresso: P_TEXTO_FILTRO("Tipo de ingresso (ex.: Vestibular)"),
+  turno: P_TEXTO_FILTRO("Turno"),
+  concurso: P_TEXTO_FILTRO("Concurso"),
+  campanha: P_TEXTO_FILTRO("Campanha"),
+  incluir_testes: { type: "boolean", description: "Inclui registros de teste (e-mail teste@). Padrão: false" },
+};
+const DETALHES_SUMARE = ["curso", "curso_codigo", "polo", "area", "tipo_ingresso", "turno", "concurso", "campanha"];
+
+const FERRAMENTAS_SUMARE = [
+  {
+    nome: "sumare_matriculas",
+    titulo: "Matrículas e inscrições da Sumaré",
+    tipo: "leitura",
+    papel: "leitor",
+    idempotente: true,
+    descricao:
+      "Conta matrículas (padrão) ou inscrições do Centro Universitário Sumaré num período, com quebra opcional e " +
+      "comparação com o mês anterior. Matrícula = candidato CONVERTIDO com dtMatricula no período; inscrição = " +
+      "dtInscricao no período. Conta inscrições, não pessoas: cpfs_unicos mostra pessoas distintas (a mesma pessoa pode " +
+      "ter duas matrículas, ex.: graduação e pós). Sem período = do dia 1 do mês atual até hoje. Mapeamento: 'hoje', " +
+      "'ontem', 'semana passada' -> data_inicio/data_fim; 'mês passado' -> mes; 'por polo' -> detalhe=polo; " +
+      "'evolução' ou 'por dia' -> detalhe=dia. Para mês em andamento, o comparativo justo é mes_anterior.ate_mesmo_dia. " +
+      "Responda curto: número principal em negrito com o período e o horário de base_atualizada_em (se for de um dia " +
+      "anterior, avise que os dias seguintes não entram).",
+    entrada: {
+      type: "object",
+      properties: {
+        metrica: { type: "string", enum: ["matriculas", "inscricoes"], description: "Padrão: matriculas" },
+        mes: { type: "string", description: "AAAA-MM (mês inteiro; se for o mês atual, vai até hoje)" },
+        data_inicio: { type: "string", description: "AAAA-MM-DD" },
+        data_fim: { type: "string", description: "AAAA-MM-DD, inclusivo. Padrão: hoje" },
+        comparar: { type: "boolean", description: "Inclui o mês anterior fechado e até o mesmo dia" },
+        detalhe: { type: "string", enum: [...DETALHES_SUMARE, "dia", "semana"], description: "Quebra do total" },
+        ...SUMARE_FILTROS_ENTRADA,
+      },
+    },
+    async executar(a, c) {
+      const inscricoes = a.metrica === "inscricoes";
+      const campo = inscricoes ? "dtInscricao" : "dtMatricula";
+      const [ini, fim] = sumarePeriodo(a);
+      const r = await sumareCandidatos(c, { ...a, etapa: undefined, status: undefined }, inscricoes ? {} : { etapas: "CONVERTIDO" });
+      const noPeriodo = (x, i, f) => {
+        const d = String(x[campo] || "").slice(0, 10);
+        return d !== "" && d >= i && d <= f;
+      };
+      const sel = r.itens.filter((x) => noPeriodo(x, ini, fim));
+      const dados = {
+        base_atualizada_em: r.base,
+        metrica: inscricoes ? "inscricoes" : "matriculas",
+        periodo: `${ini} a ${fim}`,
+        total: sel.length,
+        cpfs_unicos: new Set(sel.map((x) => x.cpf)).size,
+        filtros: r.filtros,
+        registros_teste_excluidos: r.testes,
+      };
+      if (a.detalhe) dados.detalhe = sumareQuebra(sel, a.detalhe, campo);
+      if (a.comparar) {
+        const d = new Date(ini + "T00:00:00Z");
+        d.setUTCDate(0); // último dia do mês anterior
+        const pf = d.toISOString().slice(0, 10);
+        const pi = pf.slice(0, 8) + "01";
+        const prev = r.itens.filter((x) => noPeriodo(x, pi, pf));
+        const ateDia = Math.min(Number(fim.slice(8, 10)), Number(pf.slice(8, 10)));
+        dados.mes_anterior = {
+          periodo: `${pi} a ${pf}`,
+          total: prev.length,
+          ate_mesmo_dia: { ate_dia: ateDia, total: prev.filter((x) => Number(String(x[campo]).slice(8, 10)) <= ateDia).length },
+        };
+      }
+      return { dados, log: { alvo: `${dados.metrica} ${dados.periodo}: ${sel.length}` } };
+    },
+  },
+
+  {
+    nome: "sumare_funil",
+    titulo: "Funil de captação da Sumaré",
+    tipo: "leitura",
+    papel: "leitor",
+    idempotente: true,
+    descricao:
+      "Retrato atual do funil de candidatos da Sumaré (não depende de período): quantos em cada etapa e status, com " +
+      "quebra opcional. Etapas: CONTRATO (não assinou; status PARADO_CONTRATO), PAGAMENTO (assinou, não pagou) e " +
+      "CONVERTIDO (matriculado). Status em PAGAMENTO: INERTE_PAGAMENTO (assinou sem tentar pagar), PIX_VENCIDO, " +
+      "BOLETO_VENCIDO, BOLETO_EM_COMPENSACAO, PIX_A_VENCER, BOLETO_A_VENCER, PAGO_AGUARDANDO_ALUNO (cartão aprovado), " +
+      "CARTAO_RECUSADO. diasParado = há quantos dias o candidato não avança. Use para 'quem não pagou', 'boletos " +
+      "vencidos', 'parados no contrato'. Devolve só contagens; para nomes e contatos use sumare_lista_candidatos.",
+    entrada: {
+      type: "object",
+      properties: {
+        etapa: P_TEXTO_FILTRO("Etapa (CONTRATO, PAGAMENTO, CONVERTIDO)"),
+        status: { type: "string", description: "Código(s) de status, vírgula" },
+        dias_parado_min: { type: "integer", minimum: 0, description: "Só candidatos parados há N dias ou mais" },
+        detalhe: { type: "string", enum: [...DETALHES_SUMARE, "status"], description: "Abre cada valor por etapa" },
+        ...SUMARE_FILTROS_ENTRADA,
+      },
+    },
+    async executar(a, c) {
+      const r = await sumareCandidatos(c, a);
+      const conta = (f) => {
+        const o = {};
+        for (const x of r.itens) {
+          const k = f(x);
+          o[k] = (o[k] || 0) + 1;
+        }
+        return o;
+      };
+      const porStatus = conta((x) => `${x.etapa}|${x.statusDescricao || x.status}`);
+      const dados = {
+        base_atualizada_em: r.base,
+        total_candidatos: r.itens.length,
+        cpfs_unicos: new Set(r.itens.map((x) => x.cpf)).size,
+        por_etapa: conta((x) => x.etapa),
+        por_status: Object.entries(porStatus)
+          .sort((p, q) => q[1] - p[1])
+          .map(([k, total]) => ({ etapa: k.split("|")[0], status: k.split("|")[1], total })),
+        filtros: r.filtros,
+        registros_teste_excluidos: r.testes,
+      };
+      if (a.detalhe) {
+        const grupos = {};
+        for (const x of r.itens) {
+          const k = SUMARE_CHAVES[a.detalhe](x) || "(sem informação)";
+          grupos[k] = grupos[k] || {};
+          grupos[k][x.etapa] = (grupos[k][x.etapa] || 0) + 1;
+        }
+        dados.detalhe = Object.entries(grupos)
+          .map(([valor, etapas]) => ({ [a.detalhe]: valor, ...etapas, total: Object.values(etapas).reduce((s, n) => s + n, 0) }))
+          .sort((p, q) => q.total - p.total);
+      }
+      return { dados, log: { alvo: `funil: ${r.itens.length} candidatos` } };
+    },
+  },
+
+  {
+    nome: "sumare_lista_candidatos",
+    titulo: "Lista de candidatos da Sumaré (dados pessoais)",
+    tipo: "leitura",
+    papel: "editor",
+    exigeMotivo: true,
+    idempotente: true,
+    descricao:
+      "Lista candidatos com dados pessoais (nome, CPF, e-mail, WhatsApp) para a equipe comercial, ex.: recuperação de " +
+      "boletos/PIX vencidos ou parados no contrato. Exige 'motivo' (o pedido do usuário nas palavras dele): fica no log " +
+      "quem puxou, por quê, filtros e quantidade. Ordenado por diasParado (maior primeiro), em páginas de 250 (use " +
+      "'pagina'). Dados pessoais NÃO vão para o chat: junte todas as páginas e gere uma planilha .xlsx (aba " +
+      "'Candidatos', cabeçalho em negrito com fundo #FFCA00, primeira linha congelada, filtro automático, larguras " +
+      "ajustadas) e no chat mostre só quantos candidatos e o resumo por etapa/status. Use só para o fim pedido.",
+    entrada: {
+      type: "object",
+      properties: {
+        etapa: P_TEXTO_FILTRO("Etapa (CONTRATO, PAGAMENTO, CONVERTIDO)"),
+        status: { type: "string", description: "Código(s) de status, vírgula (ex.: BOLETO_VENCIDO,PIX_VENCIDO)" },
+        dias_parado_min: { type: "integer", minimum: 0, description: "Só candidatos parados há N dias ou mais" },
+        ...SUMARE_FILTROS_ENTRADA,
+        pagina: { type: "integer", minimum: 1, description: "Página de linhas. Padrão: 1" },
+        motivo: P_MOTIVO,
+      },
+      required: ["motivo"],
+    },
+    async executar(a, c) {
+      const r = await sumareCandidatos(c, a);
+      const base = [...r.itens].sort((p, q) => (q.diasParado || 0) - (p.diasParado || 0));
+      const TAM = 250;
+      const totalPaginas = Math.max(1, Math.ceil(base.length / TAM));
+      const pagina = Math.min(Math.max(parseInt(a.pagina || 1, 10), 1), totalPaginas);
+      const resumo = {};
+      for (const x of base) {
+        const k = `${x.etapa} / ${x.statusDescricao || x.status}`;
+        resumo[k] = (resumo[k] || 0) + 1;
+      }
+      return {
+        dados: {
+          base_atualizada_em: r.base,
+          total: base.length,
+          resumo_por_status: resumo,
+          filtros: r.filtros,
+          colunas: SUMARE_COLUNAS,
+          pagina,
+          total_paginas: totalPaginas,
+          linhas: base.slice((pagina - 1) * TAM, pagina * TAM).map((x) => SUMARE_COLUNAS.map((k) => x[k] ?? null)),
+        },
+        log: { alvo: `${base.length} candidatos`, detalhe: `página ${pagina}/${totalPaginas}; filtros ${JSON.stringify(r.filtros)}` },
+      };
+    },
+  },
+
+  {
+    nome: "sumare_opcoes",
+    titulo: "Opções de filtro da Sumaré",
+    tipo: "leitura",
+    papel: "leitor",
+    idempotente: true,
+    descricao:
+      "Lista os valores aceitos nos filtros (cursos, polos, áreas, tipos de ingresso, turnos, concursos, campanhas, " +
+      "etapas), com nome e código. Use quando o usuário citar um curso ou polo ambíguo.",
+    entrada: { type: "object", properties: {} },
+    async executar(a, c) {
+      const f = await sumareFiltros(c.env);
+      const dados = {};
+      for (const [k, v] of Object.entries(f)) {
+        if (Array.isArray(v)) dados[k] = v.map(opcaoSumare).map((o) => (o.codigo === o.descricao ? o.codigo : `${o.descricao} (${o.codigo})`));
+      }
+      return { dados, log: {} };
+    },
+  },
+];
+
 /* ------------------------------------------------------------------ ferramentas comuns a todas as áreas */
 
 const FERRAMENTAS_COMUNS = [
@@ -1166,7 +1545,7 @@ const FERRAMENTAS_COMUNS = [
     tipo: "leitura",
     papel: "leitor",
     idempotente: true,
-    descricao: "Mostra quem está conectado, o papel, as lojas liberadas e os limites que se aplicam.",
+    descricao: "Mostra quem está conectado, o papel, as áreas liberadas e, nas lojas, as lojas e os limites que se aplicam.",
     entrada: { type: "object", properties: {} },
     async executar(a, c) {
       const u = c.usuario;
@@ -1174,13 +1553,15 @@ const FERRAMENTAS_COMUNS = [
         dados: {
           nome: u.nome,
           papel: u.papel,
-          areas: u.areas,
-          lojas: u.lojas === "*" ? Object.keys(LOJAS) : lista(u.lojas),
-          limites_editor: {
-            cupom_max_percentual: cfgNum(c.env, "CUPOM_MAX_PCT_EDITOR", 50),
-            cupom_max_reais: cfgNum(c.env, "CUPOM_MAX_FIXO_EDITOR", 300),
-            cupom_max_usos: cfgNum(c.env, "CUPOM_MAX_USOS_EDITOR", 20),
-          },
+          areas: u.areas === "*" ? NOMES_AREAS : lista(u.areas),
+          ...(c.nomeArea === "lojas" && {
+            lojas: u.lojas === "*" ? Object.keys(LOJAS) : lista(u.lojas),
+            limites_editor: {
+              cupom_max_percentual: cfgNum(c.env, "CUPOM_MAX_PCT_EDITOR", 50),
+              cupom_max_reais: cfgNum(c.env, "CUPOM_MAX_FIXO_EDITOR", 300),
+              cupom_max_usos: cfgNum(c.env, "CUPOM_MAX_USOS_EDITOR", 20),
+            },
+          }),
           ferramentas: ferramentasDe(c).map((f) => f.nome),
         },
         log: {},
@@ -1279,7 +1660,7 @@ const FERRAMENTAS_COMUNS = [
         email: { type: "string" },
         papel: { type: "string", enum: Object.keys(PAPEIS) },
         lojas: { type: "array", items: { type: "string", enum: Object.keys(LOJAS) }, description: "Padrão: todas" },
-        areas: { type: "array", items: { type: "string", enum: NOMES_AREAS }, description: "Padrão: lojas" },
+        areas: { type: "array", items: { type: "string", enum: NOMES_AREAS }, description: "Padrão: a área deste conector" },
       },
       required: ["acao"],
     },
@@ -1401,6 +1782,28 @@ const AREAS = {
           "erro e pare.",
         "8. O plugin WooCommerce Parcelas foi retirado do repositório do WordPress em 26/10/2025 e não recebe mais " +
           "atualizações; continua funcionando. Só mencione se o assunto surgir.",
+      ].join("\n"),
+  },
+  sumare: {
+    titulo: "Sumaré: Dash de Captação",
+    ferramentas: FERRAMENTAS_SUMARE,
+    instrucoes: (u) =>
+      [
+        "Conector do Dash de Captação do Centro Universitário Sumaré (API Softsy): matrículas, inscrições, funil de " +
+          "candidatos e listas para recuperação.",
+        `Conectado como ${u.nome}, papel ${u.papel}. Toda chamada fica registrada em log de auditoria com esse nome.`,
+        "Regras:",
+        "1. Matrícula = candidato CONVERTIDO com data de matrícula no período. Os números contam inscrições; cite " +
+          "cpfs_unicos quando a diferença importar.",
+        "2. Responda curto, em português do Brasil, sem travessão: número principal em negrito com o período, depois o " +
+          "horário de base_atualizada_em (horário de Brasília). Se a base for de um dia anterior, avise.",
+        "3. Comparação ou quebra só se pedida. Para mês em andamento, compare com o mês anterior até o mesmo dia.",
+        "4. Dados pessoais (nome, CPF, telefone, e-mail) nunca vão para o chat. Listas só com sumare_lista_candidatos, " +
+          "com motivo, e entregues em planilha.",
+        "5. Registros de teste (e-mail teste@) já vêm excluídos; só mencione a quantidade se for relevante.",
+        "6. Toda consulta passa por este conector, para ficar no log. Nunca use outro caminho até a API da Softsy. Se " +
+          "uma ferramenta falhar, informe o erro e pare.",
+        "7. Nunca invente números: use só o que as ferramentas devolverem.",
       ].join("\n"),
   },
 };

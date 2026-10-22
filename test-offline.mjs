@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.1.0", "versão 1.1.0");
+ok(ini.serverInfo.version === "1.2.0", "versão 1.2.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -75,3 +75,118 @@ let r = await raw("/"); ok(r.status === 200 && (await r.text()) === "MCP Resultz
 r = await raw("/lojas/tokeninvalido1234567890abcdef", { method: "POST", body: "{}" }); ok(r.status === 404, "token inválido -> 404");
 r = await raw("/.well-known/oauth-protected-resource"); ok(r.status === 404, ".well-known -> 404");
 ok(ini.serverInfo.icons?.[0]?.src === "https://mcp.resultz.com.br/icon.png", "initialize anuncia o ícone");
+
+// ---------- área sumare (API Softsy simulada; dados fictícios)
+env.SUMARE_API_USER = "usr"; env.SUMARE_API_PASS = "pwd";
+const cand = (id, etapa, status, extra) => ({
+  candidato: id, nome: `Pessoa ${id}`, email: `p${id}@exemplo.com`, whatsapp: `1190000${id}`, cpf: `000${id}`,
+  curso: "DIR", nomeCurso: "Direito", turno: "N", descricaoTurno: "Noite", polo: "P1", nomePolo: "Guarulhos",
+  area: "Humanas", tipoIngresso: "Vestibular", concurso: "2027.1", campanha: "Black Friday", etapa, status,
+  statusDescricao: status, diasParado: 0, dtInscricao: "2026-10-01T09:00:00", dtAssinaturaContrato: null, dtMatricula: null, aluno: null,
+  ...extra,
+});
+const candidatos = [
+  cand(1, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-10-05T10:00:00", aluno: "A1" }),
+  cand(2, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-10-06T11:00:00", polo: "P2", nomePolo: "Tatuapé", curso: "ADM_EAD", nomeCurso: "Administração EAD", cpf: "000222" }),
+  cand(3, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-10-06T15:00:00", polo: "P2", nomePolo: "Tatuapé", curso: "ADM_1_EAD", nomeCurso: "Administração EAD", cpf: "000222" }),
+  cand(4, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-09-03T10:00:00", dtInscricao: "2026-09-01T10:00:00" }),
+  cand(5, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-09-25T10:00:00", dtInscricao: "2026-09-20T10:00:00" }),
+  cand(6, "CONVERTIDO", "MATRICULADO", { dtMatricula: "2026-10-07T10:00:00", email: "teste@exemplo.com" }),
+  cand(7, "PAGAMENTO", "BOLETO_VENCIDO", { diasParado: 9, dtInscricao: "2026-10-02T09:00:00", nome: "Joao Ficticio", cpf: "55555555555" }),
+  cand(8, "PAGAMENTO", "PIX_VENCIDO", { diasParado: 3, polo: "P2", nomePolo: "Tatuapé", campanha: "Volta às aulas" }),
+  cand(9, "CONTRATO", "PARADO_CONTRATO", { diasParado: 15, polo: "P2", nomePolo: "Tatuapé", dtInscricao: "2026-09-28T09:00:00" }),
+];
+const sumareFiltrosMock = {
+  cursos: [{ codigo: "DIR", descricao: "Direito" }, { codigo: "ADM_EAD", descricao: "Administração EAD" }, { codigo: "ADM_1_EAD", descricao: "Administração EAD" }],
+  polos: [{ codigo: "P1", descricao: "Guarulhos" }, { codigo: "P2", descricao: "Tatuapé" }],
+  areas: [{ codigo: "Humanas", descricao: "Humanas" }], turnos: [{ codigo: "N", descricao: "Noite" }],
+  tiposIngresso: [{ codigo: "Vestibular", descricao: "Vestibular" }], concursos: [{ codigo: "2027.1", descricao: "2027.1" }],
+  campanhas: [{ codigo: "BF", descricao: "Black Friday" }],
+  etapas: [{ codigo: "CONTRATO", descricao: "Contrato" }, { codigo: "PAGAMENTO", descricao: "Pagamento" }, { codigo: "CONVERTIDO", descricao: "Convertido" }],
+};
+const sumareConsultas = [];
+const fetchLojas = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(url);
+  if (u.host !== "gateway-sumare.softsy.io") return fetchLojas(url, init);
+  if (init.headers?.Authorization !== "Basic " + btoa("usr:pwd")) return new Response("Unauthorized", { status: 401 });
+  const j = (d) => new Response(JSON.stringify(d), { status: 200 });
+  if (u.pathname.endsWith("/filtros")) return j(sumareFiltrosMock);
+  const q = Object.fromEntries(u.searchParams); sumareConsultas.push(q);
+  const em = (campo, chave) => !q[chave] || q[chave].split(",").includes(campo);
+  const fil = candidatos.filter((x) => em(x.etapa, "etapas") && em(x.polo, "polos") && em(x.curso, "cursos") && em(x.status, "status"));
+  const tam = Number(q.tamanho), pag = Number(q.pagina || 1);
+  return j({ geradoEm: "2026-10-22T14:00:00", dadosDe: "2026-10-22T13:58:00", pagina: pag, tamanho: tam, total: fil.length,
+    totalPaginas: Math.max(1, Math.ceil(fil.length / tam)), itens: fil.slice((pag - 1) * tam, pag * tam) });
+};
+async function rpcArea(area, token, method, params) {
+  const r = await worker.fetch(new Request(`https://mcp.resultz.com.br/${area}/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++n, method, params }) }), env, { waitUntil: (p) => p });
+  return { status: r.status, json: r.status === 200 ? await r.json() : null };
+}
+async function toolArea(area, token, name, args) {
+  const r = (await rpcArea(area, token, "tools/call", { name, arguments: args })).json.result;
+  let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; }
+  return { erro: !!r.isError, d };
+}
+const su = (name, args, token = ADMIN) => toolArea("sumare", token, name, args);
+
+let s = await rpcArea("sumare", ADMIN, "initialize", { protocolVersion: "2025-06-18" });
+ok(s.json.result.instructions.includes("Dash de Captação") && s.json.result.serverInfo.name === "resultz-sumare", "sumare: initialize com instruções da área");
+s = await rpcArea("sumare", ADMIN, "tools/list", {});
+ok(s.json.result.tools.map((t) => t.name).sort().join() === "consultar_log,gerenciar_acessos,meu_acesso,sumare_funil,sumare_lista_candidatos,sumare_matriculas,sumare_opcoes", "sumare: admin vê as 4 ferramentas da área + 3 comuns");
+
+let m = await su("sumare_matriculas", { mes: "2026-10" });
+ok(!m.erro && m.d.total === 3 && m.d.cpfs_unicos === 2 && m.d.registros_teste_excluidos === 1 && m.d.base_atualizada_em === "2026-10-22 13:58",
+  `sumare: matrículas out/2026 = ${m.d.total} (cpfs ${m.d.cpfs_unicos}, testes excluídos ${m.d.registros_teste_excluidos})`);
+ok(sumareConsultas.at(-1).etapas === "CONVERTIDO" && sumareConsultas.at(-1).tamanho === "5000", "sumare: matrículas pede só CONVERTIDO à API");
+m = await su("sumare_matriculas", { data_inicio: "2026-10-06", data_fim: "2026-10-06", detalhe: "polo" });
+ok(!m.erro && m.d.total === 2 && m.d.detalhe[0].polo === "Tatuapé", "sumare: período de um dia com quebra por polo");
+m = await su("sumare_matriculas", { mes: "2026-10", polo: "tatuape" });
+ok(!m.erro && m.d.total === 2 && m.d.filtros.polos === "P2", "sumare: filtro por nome sem acento resolve o código");
+m = await su("sumare_matriculas", { mes: "2026-10", curso: "administracao" });
+ok(!m.erro && m.d.filtros.cursos.split(",").sort().join() === "ADM_1_EAD,ADM_EAD", "sumare: curso por nome pega todos os códigos");
+m = await su("sumare_matriculas", { mes: "2026-10", comparar: true });
+ok(!m.erro && m.d.mes_anterior.total === 2 && m.d.mes_anterior.ate_mesmo_dia.total === 1 && m.d.mes_anterior.periodo === "2026-09-01 a 2026-09-30",
+  `sumare: comparar com setembro = ${m.d.mes_anterior?.total}, até o mesmo dia = ${m.d.mes_anterior?.ate_mesmo_dia?.total}`);
+m = await su("sumare_matriculas", { metrica: "inscricoes", data_inicio: "2026-10-01", data_fim: "2026-10-31", detalhe: "dia" });
+ok(!m.erro && m.d.total === 5 && !sumareConsultas.at(-1).etapas && m.d.detalhe[0].dia === "2026-10-01", `sumare: inscrições outubro = ${m.d.total}, por dia`);
+m = await su("sumare_matriculas", { polo: "Inexistente" });
+ok(m.erro && m.d.includes("não encontrado") && m.d.includes("Guarulhos"), "sumare: filtro inválido lista as opções");
+
+let f = await su("sumare_funil", {});
+ok(!f.erro && f.d.total_candidatos === 8 && f.d.por_etapa.CONVERTIDO === 5 && f.d.por_etapa.PAGAMENTO === 2 && f.d.por_etapa.CONTRATO === 1, `sumare: funil ${JSON.stringify(f.d.por_etapa)}`);
+f = await su("sumare_funil", { etapa: "PAGAMENTO", detalhe: "polo" });
+ok(!f.erro && f.d.total_candidatos === 2 && f.d.detalhe.length === 2 && sumareConsultas.at(-1).etapas === "PAGAMENTO", "sumare: funil filtrado por etapa e aberto por polo");
+f = await su("sumare_funil", { dias_parado_min: 5, campanha: "black" });
+ok(!f.erro && f.d.total_candidatos === 2, "sumare: funil com dias parados e campanha");
+
+// acesso e lista com dados pessoais
+let ac = await toolArea("lojas", ADMIN, "gerenciar_acessos", { acao: "criar", nome: "Leitora Sumare", papel: "leitor", areas: ["sumare"] });
+const LEI = ac.d.links?.sumare?.split("/").pop();
+ac = await toolArea("lojas", ADMIN, "gerenciar_acessos", { acao: "criar", nome: "Editor Sumare", papel: "editor", areas: ["sumare"] });
+const EDS = ac.d.links?.sumare?.split("/").pop();
+ok(LEI?.length === 40 && EDS?.length === 40, "sumare: admin cria acessos só para a área sumare");
+ok((await rpcArea("lojas", EDS, "tools/list", {})).status === 404, "sumare: acesso só da sumare não abre as lojas (404)");
+s = await rpcArea("sumare", LEI, "tools/list", {});
+ok(!s.json.result.tools.some((t) => t.name === "sumare_lista_candidatos") && s.json.result.tools.some((t) => t.name === "sumare_funil"), "sumare: leitor vê contagens, não vê a lista");
+let l = await su("sumare_lista_candidatos", { status: "BOLETO_VENCIDO" }, LEI);
+ok(l.erro, "sumare: leitor não consegue chamar a lista");
+l = await su("sumare_lista_candidatos", { etapa: "PAGAMENTO" }, EDS);
+ok(l.erro && l.d.includes("motivo"), "sumare: lista sem motivo é bloqueada");
+l = await su("sumare_lista_candidatos", { etapa: "PAGAMENTO,CONTRATO", motivo: "lista para a equipe ligar para quem parou" }, EDS);
+ok(!l.erro && l.d.total === 3 && l.d.linhas[0][0] === 9 && l.d.colunas.includes("cpf") && l.d.linhas.length === 3, `sumare: lista ordenada por dias parado (${l.d.linhas?.map((x) => x[0]).join(",")})`);
+const lg2 = await su("consultar_log", { ferramenta: "sumare_lista_candidatos" });
+const reg = lg2.d.registros.find((x) => x.resultado === "ok");
+const textoLog = JSON.stringify(lg2.d.registros);
+ok(reg && reg.usuario === "Editor Sumare" && reg.motivo.includes("equipe ligar") && reg.alvo === "3 candidatos", "sumare: log registra quem puxou a lista, motivo e quantidade");
+ok(!textoLog.includes("55555555555") && !textoLog.includes("Joao Ficticio") && !textoLog.includes("@exemplo.com"), "sumare: log não guarda dados pessoais");
+const ma = await su("meu_acesso", {}, EDS);
+ok(!ma.erro && !("lojas" in ma.d) && ma.d.areas.join() === "sumare", "sumare: meu_acesso sem dados das lojas");
+
+// credencial
+env.SUMARE_API_PASS = "errada"; sumareConsultas.length = 0;
+let e = await su("sumare_funil", {});
+ok(e.erro && e.d.includes("401"), "sumare: credencial recusada vira erro claro");
+delete env.SUMARE_API_PASS;
+e = await su("sumare_funil", {});
+ok(e.erro && e.d.includes("não está configurada"), "sumare: sem secret, erro claro");
