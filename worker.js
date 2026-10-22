@@ -67,6 +67,7 @@ const corta = (v, n = 4000) => {
   return s.length > n ? s.slice(0, n) + "…" : s;
 };
 const dataValida = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !isNaN(Date.parse(s + "T00:00:00Z"));
+const baseUrl = (env) => (env.BASE_URL || "https://mcp.resultz.com.br").replace(/\/+$/, "");
 const horaBrasilia = (ts) =>
   ts ? new Date(ts.replace(" ", "T") + "Z").toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : null;
 
@@ -246,7 +247,13 @@ async function tratar(msg, c) {
       return rpcOk(msg.id, {
         protocolVersion: PROTOCOLOS.includes(p.protocolVersion) ? p.protocolVersion : "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: `resultz-${c.nomeArea}`, title: c.area.titulo, version: VERSAO },
+        serverInfo: {
+          name: `resultz-${c.nomeArea}`,
+          title: c.area.titulo,
+          version: VERSAO,
+          // arquivo servido pelos static assets (pasta public/)
+          icons: [{ src: `${baseUrl(c.env)}/icon.png`, mimeType: "image/png", sizes: ["512x512"] }],
+        },
         instructions: c.area.instrucoes(c.usuario, c.env),
       });
     case "ping":
@@ -1261,7 +1268,7 @@ const FERRAMENTAS_COMUNS = [
     },
     async executar(a, c) {
       const db = c.env.DB;
-      const base = (c.env.BASE_URL || "https://mcp.resultz.com.br").replace(/\/+$/, "");
+      const base = baseUrl(c.env);
       const validarListas = () => {
         if (a.lojas && a.lojas.some((l) => !LOJAS[l])) falha("Loja inválida na lista.");
         if (a.areas && a.areas.some((x) => !AREAS[x])) falha("Área inválida na lista.");
