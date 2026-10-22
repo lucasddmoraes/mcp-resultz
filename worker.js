@@ -5,6 +5,7 @@
  * Endereço de cada conector:  https://mcp.resultz.com.br/<area>/<token>
  * Áreas disponíveis:          lojas (WooCommerce dos colégios GDV e Super Humanos)
  *                              sumare (Dash de Captação da Sumaré, API Softsy)
+ *                              midia (tagueamento e mídia paga: Meta, Google Ads, GA4, GTM; código em midia.js)
  *
  * Binding exigido:
  *   DB   banco D1 (as tabelas são criadas sozinhas na primeira chamada)
@@ -13,18 +14,21 @@
  *   WOO_GDV_CK, WOO_GDV_CS            chave da API REST da loja GDV (Leitura/Escrita)
  *   WOO_SH_CK,  WOO_SH_CS             chave da API REST da loja Super Humanos (Leitura/Escrita)
  *   SUMARE_API_USER, SUMARE_API_PASS  usuário e senha (Basic) da API do Dash de Captação da Sumaré
+ *   GOOGLE_SA_JSON, GOOGLE_ADS_*, META_ACCESS_TOKEN, CLOUDFLARE_API_TOKEN   área midia (ver midia.js)
  * Variáveis opcionais:
  *   ADMIN_NOME (Lucas), BASE_URL (https://mcp.resultz.com.br),
  *   CUPOM_MAX_PCT_EDITOR (50), CUPOM_MAX_FIXO_EDITOR (300), CUPOM_MAX_USOS_EDITOR (20),
  *   EXCLUIR_EMAILS (login@resultzads.com)
  */
 
-const VERSAO = "1.2.0";
+import { criarAreaMidia } from "./midia.js";
+
+const VERSAO = "1.3.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const ALFA36 = "abcdefghijklmnopqrstuvwxyz0123456789";
-const NOMES_AREAS = ["lojas", "sumare"]; // ao criar uma área nova em AREAS, inclua o nome aqui
+const NOMES_AREAS = ["lojas", "sumare", "midia"]; // ao criar uma área nova em AREAS, inclua o nome aqui
 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
@@ -1784,6 +1788,7 @@ const AREAS = {
           "atualizações; continua funcionando. Só mencione se o assunto surgir.",
       ].join("\n"),
   },
+  midia: criarAreaMidia({ falha, norm, P_MOTIVO, corta }),
   sumare: {
     titulo: "Sumaré: Dash de Captação",
     ferramentas: FERRAMENTAS_SUMARE,
