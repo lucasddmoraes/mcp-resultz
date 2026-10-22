@@ -18,7 +18,7 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
   das lojas e intercepta toda escrita (POST/PUT/DELETE), então não altera nada em produção. Chaves: arquivo
   apontado por `LOJAS_JSON` (formato `{"gdv":{"ck":"","cs":""},"sh":{...}}`) ou variáveis `WOO_*`.
   Rodar os testes depois de qualquer mudança.
-- `wrangler.jsonc`: configuração para o deploy pelo Claude Code.
+- `wrangler.jsonc`: configuração lida pela integração Git da Cloudflare no deploy (nome do Worker, D1, domínio).
 - `.dev.vars.example`: modelo de segredos para rodar localmente. O arquivo real `.dev.vars` nunca vai para o git.
 
 ## Endereço
@@ -68,21 +68,30 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
 
 ## Deploy
 
-Dois caminhos, escolher um e manter:
+Caminho oficial: integração Git da Cloudflare (Workers Builds). O Worker `mcp-resultz` fica conectado ao
+repositório `lucasddmoraes/mcp-resultz` e cada push na branch `main` faz build e deploy automáticos com
+`npx wrangler deploy`, lendo o `wrangler.jsonc`. Cada versão no ar corresponde a um commit.
 
-- Painel web: colar `worker.js` no editor do Worker e clicar em Deploy.
-- Claude Code: `npx wrangler deploy` usando o `wrangler.jsonc` (o próprio Claude Code executa; o Lucas só autoriza
-  o login da Cloudflare no navegador na primeira vez). Antes do primeiro deploy, preencher `database_id` com o ID
-  do banco D1 `mcp-resultz` (`npx wrangler d1 list`). `keep_vars` está ligado para não apagar variáveis criadas
-  pelo painel.
+- Não usar `wrangler deploy` local nem fazer login na Cloudflare pelo Claude Code. A conta da Resultz concentra
+  outros domínios e Workers; o Claude Code só precisa enxergar o repositório.
+- Não colar código no editor do painel: a próxima build sobrescreve.
+- Mudanças entram por branch + pull request. Merge na `main` = deploy em produção.
+- O nome do Worker no painel precisa ser igual ao `name` do `wrangler.jsonc` (`mcp-resultz`), senão a build falha.
+- `database_id` no `wrangler.jsonc` é o ID do banco D1 `mcp-resultz` (não é segredo). Criado pelo Lucas no painel.
+- `keep_vars` está ligado para não apagar variáveis criadas pelo painel.
+- Builds de branches que não são a `main` (Previews) ficam desligadas, para não existir outro endereço servindo o
+  conector.
 
-Segredos (`ADMIN_TOKEN`, `WOO_*`) são sempre cadastrados pelo Lucas no painel da Cloudflare. Nunca pedir que ele
-cole valores de segredo no chat nem gravar em arquivo versionado.
+Segredos (`ADMIN_TOKEN`, `WOO_*`) são sempre cadastrados pelo Lucas no painel da Cloudflare (Worker > Settings >
+Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem gravar em arquivo versionado.
 
 ## Estado atual
 
 - Versão 1.0.0: testada localmente (38 verificações) contra a loja real do GDV, com escritas interceptadas.
-- Pendente: publicar e fazer o primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
+- Código no GitHub (`lucasddmoraes/mcp-resultz`), com `.gitignore` cobrindo `.dev.vars` e `lojas.json`.
+- Pendente: Lucas criar o banco D1 `mcp-resultz` e passar o ID; preencher `database_id`; merge na `main`;
+  importar o repositório na Cloudflare; cadastrar os segredos; verificar de fora (raiz e token inválido).
+- Depois: primeiro teste real de escrita (criar um cupom pelo conector e consultar o log).
 
 ## Próximos passos
 
