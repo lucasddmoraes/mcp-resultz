@@ -1,5 +1,6 @@
 {
-  // Configuração de deploy do MCP Resultz (usada pelo Claude Code com `npx wrangler deploy`)
+  // Configuração do MCP Resultz. O deploy é feito pela integração Git da Cloudflare (Workers Builds) a cada push na main.
+  // Não rodar `wrangler deploy` local.
   "name": "mcp-resultz",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
@@ -8,7 +9,7 @@
     {
       "binding": "DB",
       "database_name": "mcp-resultz",
-      "database_id": "PREENCHER_COM_O_ID_DO_BANCO"
+      "database_id": "05e8705f-bc61-40e7-8d78-4bc670bd208e"
     }
   ],
   "routes": [{ "pattern": "mcp.resultz.com.br", "custom_domain": true }],

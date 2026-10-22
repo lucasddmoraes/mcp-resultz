@@ -1,0 +1,10 @@
+# Segredos locais: nunca versionar
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+lojas.json
+*.lojas.json
+
+# Gerados
+node_modules/
+.wrangler/

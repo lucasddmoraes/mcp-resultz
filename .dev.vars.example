@@ -1,0 +1,7 @@
+# Modelo para rodar localmente. Copie para .dev.vars (que nunca vai para o git) e preencha.
+# Em produção, estes valores são cadastrados pelo Lucas no painel da Cloudflare (Settings > Variables and Secrets).
+ADMIN_TOKEN=
+WOO_GDV_CK=
+WOO_GDV_CS=
+WOO_SH_CK=
+WOO_SH_CS=
