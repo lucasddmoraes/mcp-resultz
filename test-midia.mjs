@@ -212,9 +212,9 @@ globalThis.fetch = async (url, init = {}) => {
         { origem: "Instagram", midia: "", campanha: "", n: 2 },
       ] }] });
     }
-    if (p === "accounts") return resp(200, { success: true, result: [{ id: "181aaa", name: "Resultz" }] });
-    if (p === "zones") return resp(200, { success: true, result: [{ id: "z1", account: { id: "181aaa" } }] });
-    if (p.endsWith("/pages/projects")) return resp(200, { success: true, result: [{ name: "appexemplo", domains: ["exemplo.com.br"], source: { config: { owner: "resultz", repo_name: "site-exemplo" } }, deployment_configs: { production: { d1_databases: { DB: { id: "d1-exemplo" } } } } }] });
+    if (p === "accounts") return resp(200, { success: true, result: [{ id: "181aaaca86a33b6bdf2b4e70ff83d398", name: "Resultz" }] });
+    if (p === "zones") return resp(200, { success: true, result: [{ id: "z1", account: { id: "181aaaca86a33b6bdf2b4e70ff83d398" } }] });
+    if (p.endsWith("/pages/projects")) return resp(200, { success: true, result: [{ name: "appexemplo", domains: ["exemplo.com.br"], source: { config: { owner: "resultz", repo_name: "site-exemplo" } }, deployment_configs: { production: { d1_databases: { DB: { id: "0d1e0000-0000-4000-8000-00000000e4e4" } } } } }] });
   }
   if (u.host === "www.googletagmanager.com") {
     const id = u.searchParams.get("id");
@@ -258,7 +258,7 @@ ok(nomes.length === 17, `midia: admin vê ${nomes.length} ferramentas`);
 ok(r.json.result.tools.filter((x) => x.name.startsWith("tag_") || x.name === "midia_meta").every((x) => x.annotations.readOnlyHint), "midia: ferramentas de coleta marcadas como só leitura");
 
 // fichas
-let x = await t("midia_salvar_cliente", { slug: "exemplo", nome: "Escola Exemplo", ficha: { site: { url: "https://exemplo.com.br" }, google: { gtm: "GTM-TESTE01", ga4: "G-TESTE12345", ga4_propriedade: "4242", ads_tag: "AW-123456789", ads_cliente: "555-000-1111" }, meta: { pixel: "998877665544332", conta: "528562687958126" }, cloudflare: { conta: "181aaa", d1_banco: "d1-exemplo" }, leads: { consulta_periodo: "SELECT origem, midia, campanha, COUNT(*) n FROM leads WHERE criado_em BETWEEN '{inicio}' AND '{fim}' GROUP BY 1,2,3" } }, motivo: "cadastrar a escola exemplo" });
+let x = await t("midia_salvar_cliente", { slug: "exemplo", nome: "Escola Exemplo", ficha: { site: { url: "https://exemplo.com.br" }, google: { gtm: "GTM-TESTE01", ga4: "G-TESTE12345", ga4_propriedade: "4242", ads_tag: "AW-123456789", ads_cliente: "555-000-1111" }, meta: { pixel: "998877665544332", conta: "528562687958126" }, cloudflare: { conta: "181aaaca86a33b6bdf2b4e70ff83d398", d1_banco: "0d1e0000-0000-4000-8000-00000000e4e4" }, leads: { consulta_periodo: "SELECT origem, midia, campanha, COUNT(*) n FROM leads WHERE criado_em BETWEEN '{inicio}' AND '{fim}' GROUP BY 1,2,3" } }, motivo: "cadastrar a escola exemplo" });
 ok(!x.erro && x.d.criado && x.d.ficha.google.gtm === "GTM-TESTE01", "fichas: cria a ficha");
 x = await t("midia_salvar_cliente", { slug: "exemplo", ficha: { meta: { business: "305" } }, historico: "auditoria de teste", motivo: "complementar" });
 ok(!x.erro && !x.d.criado && x.d.ficha.meta.pixel === "998877665544332" && x.d.ficha.meta.business === "305" && x.d.ficha.historico[0].includes("Lucas"), "fichas: atualiza mesclando a seção e grava histórico com autor");
@@ -331,6 +331,10 @@ x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns`, params: { fiel
 ok(!x.erro && x.d.data.length === 2, "consulta Graph livre");
 x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns?access_token=x` });
 ok(x.erro, "consulta Graph recusa token ou query no caminho");
+x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns/123`, params: { method: "delete" } });
+ok(x.erro && /method/i.test(x.bruto), "midia_consulta_meta: recusa params.method (viraria escrita no Graph)");
+x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns`, params: { batch: "[]" } });
+ok(x.erro, "midia_consulta_meta: recusa params.batch");
 
 // leads reais
 x = await t("midia_leads", { cliente: "exemplo" });
@@ -343,7 +347,7 @@ x = await t("midia_acessos", {});
 ok(!x.erro && Object.values(x.d.credenciais).every(Boolean) && x.d.ga4[0].propriedades[0].id === "4242" && x.d.gtm[0].conteineres[0].id === "GTM-TESTE01" && x.d.meta[0].conta === "528562687958126" && x.d.google_ads.contas.length === 2 && x.d.cloudflare[0].nome === "Resultz", "midia_acessos: o que a agência enxerga em cada plataforma");
 x = await t("midia_descobrir", { site: "exemplo.com.br" });
 const fs = x.d.ficha_sugerida;
-ok(!x.erro && fs.google.gtm === "GTM-TESTE01" && fs.google.ga4_propriedade === "4242" && fs.google.ads_cliente === "5550001111" && fs.meta.conta === "528562687958126" && fs.cloudflare.d1_banco === "d1-exemplo", "midia_descobrir: ficha sugerida com contas achadas nas APIs");
+ok(!x.erro && fs.google.gtm === "GTM-TESTE01" && fs.google.ga4_propriedade === "4242" && fs.google.ads_cliente === "5550001111" && fs.meta.conta === "528562687958126" && fs.cloudflare.d1_banco === "0d1e0000-0000-4000-8000-00000000e4e4", "midia_descobrir: ficha sugerida com contas achadas nas APIs");
 
 // papéis e credenciais
 var ac = await rpc("lojas", ADMIN, "tools/call", { name: "gerenciar_acessos", arguments: { acao: "criar", nome: "Leitor Midia", papel: "leitor", areas: ["midia"] } });
@@ -366,7 +370,7 @@ const EDM = JSON.parse(ac.json.result.content[0].text).links.midia.split("/").po
 x = await t("midia_salvar_cliente", { slug: "exemplo", ficha: { cloudflare: { d1_banco: "05e8705f-banco-do-mcp" } }, motivo: "teste" }, EDM);
 ok(x.erro && x.d.includes("administrador"), "editor não muda o banco consultado pelos leads (cloudflare/leads só admin)");
 x = await t("midia_salvar_cliente", { slug: "exemplo", ficha: { site: { plataforma: "cloudflare-pages" } }, motivo: "complementar plataforma" }, EDM);
-ok(!x.erro && x.d.ficha.site.plataforma === "cloudflare-pages" && x.d.ficha.cloudflare.d1_banco === "d1-exemplo", "editor altera as outras seções da ficha");
+ok(!x.erro && x.d.ficha.site.plataforma === "cloudflare-pages" && x.d.ficha.cloudflare.d1_banco === "0d1e0000-0000-4000-8000-00000000e4e4", "editor altera as outras seções da ficha");
 
 // nenhum segredo nas respostas nem no log
 const lg = await t("consultar_log", { limite: 500 });

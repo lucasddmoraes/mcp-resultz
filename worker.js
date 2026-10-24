@@ -129,6 +129,10 @@ async function garantirSchema(env) {
 
 async function logAbrir(c, f, args) {
   const { motivo, ...resto } = args;
+  // O log guarda os parâmetros para auditoria, mas e-mails de famílias
+  // (ex.: cupom restrito a e-mails) ficam só na loja, nunca aqui.
+  if (Array.isArray(resto.emails)) resto.emails = `[${resto.emails.length} e-mail(s)]`;
+  else if (typeof resto.emails === "string" && resto.emails) resto.emails = "[e-mail omitido]";
   const r = await c.env.DB.prepare(
     `INSERT INTO log (usuario, usuario_id, area, ferramenta, tipo, loja, motivo, parametros, resultado)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'iniciado')`
