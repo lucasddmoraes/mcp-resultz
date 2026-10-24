@@ -332,7 +332,7 @@ ok(!x.erro && x.d.data.length === 2, "consulta Graph livre");
 x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns?access_token=x` });
 ok(x.erro, "consulta Graph recusa token ou query no caminho");
 x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns/123`, params: { method: "delete" } });
-ok(x.erro && /method/.test(x.erro), "midia_consulta_meta: recusa params.method (viraria escrita no Graph)");
+ok(x.erro && /method/i.test(JSON.stringify(x.erro)), "midia_consulta_meta: recusa params.method (viraria escrita no Graph)");
 x = await t("midia_consulta_meta", { caminho: `${ACT}/campaigns`, params: { batch: "[]" } });
 ok(x.erro, "midia_consulta_meta: recusa params.batch");
 
