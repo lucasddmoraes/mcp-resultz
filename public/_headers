@@ -1,0 +1,7 @@
+# Cabeçalhos de segurança (Cloudflare Workers com static assets lê este arquivo).
+# Sem CSP de propósito. HSTS sem includeSubDomains.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
