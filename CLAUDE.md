@@ -178,6 +178,10 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 - Versão 1.3.0: área `midia`, fase 1 (só leitura). Testada com `test-midia.mjs` (53 verificações, APIs simuladas) e no
   motor da Cloudflare (`wrangler dev`): ferramentas, ficha no D1, logo e assinatura do JWT da conta de serviço aceita
   pelo Google. Ainda não testada com as credenciais reais da agência.
+- Versão 1.3.1 (24/10/2026, verificação de segurança): `midia_consulta_meta` recusa `params.method`, `batch` e
+  `access_token` (o Graph aceita trocar o verbo HTTP pelo parâmetro `method`, o que transformaria a ferramenta de
+  leitura em escrita); o log mascara a lista de e-mails de `criar_cupom`; `midia_salvar_cliente` valida o formato
+  dos IDs de conta, zona e banco D1 da Cloudflare antes de aceitá-los no caminho da API.
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 

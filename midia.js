@@ -1574,6 +1574,11 @@ export function criarAreaMidia(h) {
           if (typeof novo[k] !== "object" || Array.isArray(novo[k])) falha(`A seção ${k} precisa ser um objeto.`);
           ficha[k] = { ...(ficha[k] || {}), ...novo[k] };
         }
+        // Os IDs da Cloudflare entram no caminho da API chamada com o token da agência:
+        // só formatos exatos, para nada além de um ID chegar lá.
+        if (ficha.cloudflare?.conta && !/^[a-f0-9]{32}$/.test(String(ficha.cloudflare.conta))) falha("cloudflare.conta precisa ser o ID da conta (32 caracteres hexadecimais).");
+        if (ficha.cloudflare?.d1_banco && !/^[a-f0-9-]{36}$/.test(String(ficha.cloudflare.d1_banco))) falha("cloudflare.d1_banco precisa ser o UUID do banco D1.");
+        if (ficha.cloudflare?.zona && !/^[a-f0-9]{32}$/.test(String(ficha.cloudflare.zona))) falha("cloudflare.zona precisa ser o ID da zona (32 caracteres hexadecimais).");
         ficha.cliente = { ...(ficha.cliente || {}), slug, ...(a.nome ? { nome: a.nome } : {}) };
         const nome = ficha.cliente.nome || atual?.nome;
         if (!nome) falha("Informe o nome do cliente (campo 'nome').");
@@ -1842,7 +1847,12 @@ export function criarAreaMidia(h) {
       async executar(a, c) {
         const caminho = String(a.caminho).replace(/^\/+/, "").replace(/^v\d+\.\d+\//, "");
         if (/access_token|[?#]/i.test(caminho)) falha("Passe os parâmetros em 'params', sem ? no caminho e sem access_token.");
-        const params = Object.fromEntries(Object.entries(a.params || {}).filter(([k]) => k !== "access_token").map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v]));
+        // A Graph API aceita trocar o verbo HTTP pelo parâmetro "method" (e
+        // executar lotes por "batch"); sem este filtro um editor faria uma
+        // escrita (pausar campanha, apagar) por uma ferramenta de leitura.
+        const PARAMS_PROIBIDOS = /^(method|batch|access_token|appsecret_proof|_method)$/i;
+        const params = Object.fromEntries(Object.entries(a.params || {}).filter(([k]) => !PARAMS_PROIBIDOS.test(k)).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v]));
+        if (Object.keys(a.params || {}).some((k) => PARAMS_PROIBIDOS.test(k))) falha("Parâmetros method, batch e access_token não são aceitos nesta ferramenta (só leitura).");
         const primeira = await graph(c.env, caminho, params);
         const { paging, ...semPaginacao } = primeira;
         const dados = Array.isArray(primeira.data) ? { data: await graphPaginas(c.env, caminho, params, 10) } : semPaginacao;
