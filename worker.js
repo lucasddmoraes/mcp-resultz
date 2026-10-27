@@ -14,6 +14,7 @@
  *   WOO_GDV_CK, WOO_GDV_CS            chave da API REST da loja GDV (Leitura/Escrita)
  *   WOO_SH_CK,  WOO_SH_CS             chave da API REST da loja Super Humanos (Leitura/Escrita)
  *   SUMARE_API_USER, SUMARE_API_PASS  usuário e senha (Basic) da API do Dash de Captação da Sumaré
+ *   (opcional) SUMARE_API_URL         base da API da Sumaré; padrão https://painel.sumare.edu.br/captacao/api/integracao/v1
  *   GOOGLE_SA_JSON, GOOGLE_ADS_*, META_ACCESS_TOKEN, CLOUDFLARE_API_TOKEN   área midia (ver midia.js)
  * Variáveis opcionais:
  *   ADMIN_NOME (Lucas), BASE_URL (https://mcp.resultz.com.br),
@@ -23,7 +24,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.3.0";
+const VERSAO = "1.3.2";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -1169,7 +1170,9 @@ const FERRAMENTAS_LOJAS = [
 
 /* ------------------------------------------------------------------ Sumaré (Dash de Captação, API Softsy) */
 
-const SUMARE_API = "https://gateway-sumare.softsy.io/dash-captacao/api/integracao/v1";
+// Endereço da API do Dash de Captação. Pode ser trocado sem código pela variável SUMARE_API_URL no painel.
+const SUMARE_API_PADRAO = "https://painel.sumare.edu.br/captacao/api/integracao/v1";
+const sumareApi = (env) => String(env.SUMARE_API_URL || SUMARE_API_PADRAO).trim().replace(/\/+$/, "");
 // argumento da ferramenta -> [lista em /filtros, parâmetro de /candidatos]
 const SUMARE_FILTROS = {
   polo: ["polos", "polos"],
@@ -1202,7 +1205,7 @@ async function sumare(env, caminho, query = {}) {
   if (!env.SUMARE_API_USER || !env.SUMARE_API_PASS) {
     falha("A credencial da API da Sumaré não está configurada no servidor (SUMARE_API_USER / SUMARE_API_PASS).");
   }
-  const url = new URL(`${SUMARE_API}/${caminho}`);
+  const url = new URL(`${sumareApi(env)}/${caminho}`);
   for (const [k, v] of Object.entries(query)) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }

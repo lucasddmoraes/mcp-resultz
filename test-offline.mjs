@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.3.0", "versão 1.3.0");
+ok(ini.serverInfo.version === "1.3.2", "versão 1.3.2");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -105,10 +105,12 @@ const sumareFiltrosMock = {
   etapas: [{ codigo: "CONTRATO", descricao: "Contrato" }, { codigo: "PAGAMENTO", descricao: "Pagamento" }, { codigo: "CONVERTIDO", descricao: "Convertido" }],
 };
 const sumareConsultas = [];
+let ultimaUrlSumare = "";
 const fetchLojas = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = new URL(url);
-  if (u.host !== "gateway-sumare.softsy.io") return fetchLojas(url, init);
+  if (u.host !== "painel.sumare.edu.br" && u.host !== "api-nova.exemplo.com") return fetchLojas(url, init);
+  ultimaUrlSumare = u.origin + u.pathname;
   if (init.headers?.Authorization !== "Basic " + btoa("usr:pwd")) return new Response("Unauthorized", { status: 401 });
   const j = (d) => new Response(JSON.stringify(d), { status: 200 });
   if (u.pathname.endsWith("/filtros")) return j(sumareFiltrosMock);
@@ -146,7 +148,11 @@ ok(!m.erro && m.d.total === 2 && m.d.filtros.polos === "P2", "sumare: filtro por
 m = await su("sumare_matriculas", { mes: "2026-10", curso: "administracao" });
 ok(!m.erro && m.d.filtros.cursos.split(",").sort().join() === "ADM_1_EAD,ADM_EAD", "sumare: curso por nome pega todos os códigos");
 m = await su("sumare_matriculas", { mes: "2026-10", comparar: true });
-ok(!m.erro && m.d.mes_anterior.total === 2 && m.d.mes_anterior.ate_mesmo_dia.total === 1 && m.d.mes_anterior.periodo === "2026-09-01 a 2026-09-30",
+// "até o mesmo dia" depende de hoje: outubro em andamento vai até hoje; depois disso, até o dia 30 de setembro
+const hojeBR = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const ateDiaEsperado = Math.min(hojeBR.startsWith("2026-10") ? Number(hojeBR.slice(8, 10)) : 31, 30);
+const esperadoAteDia = [3, 25].filter((d) => d <= ateDiaEsperado).length; // matrículas fictícias de 03/09 e 25/09
+ok(!m.erro && m.d.mes_anterior.total === 2 && m.d.mes_anterior.ate_mesmo_dia.total === esperadoAteDia && m.d.mes_anterior.periodo === "2026-09-01 a 2026-09-30",
   `sumare: comparar com setembro = ${m.d.mes_anterior?.total}, até o mesmo dia = ${m.d.mes_anterior?.ate_mesmo_dia?.total}`);
 m = await su("sumare_matriculas", { metrica: "inscricoes", data_inicio: "2026-10-01", data_fim: "2026-10-31", detalhe: "dia" });
 ok(!m.erro && m.d.total === 5 && !sumareConsultas.at(-1).etapas && m.d.detalhe[0].dia === "2026-10-01", `sumare: inscrições outubro = ${m.d.total}, por dia`);
@@ -182,6 +188,13 @@ ok(reg && reg.usuario === "Editor Sumare" && reg.motivo.includes("equipe ligar")
 ok(!textoLog.includes("55555555555") && !textoLog.includes("Joao Ficticio") && !textoLog.includes("@exemplo.com"), "sumare: log não guarda dados pessoais");
 const ma = await su("meu_acesso", {}, EDS);
 ok(!ma.erro && !("lojas" in ma.d) && ma.d.areas.join() === "sumare", "sumare: meu_acesso sem dados das lojas");
+
+// endereço da API
+ok(ultimaUrlSumare === "https://painel.sumare.edu.br/captacao/api/integracao/v1/candidatos", "sumare: usa o endereço novo da API por padrão");
+env.SUMARE_API_URL = "https://api-nova.exemplo.com/v2/";
+f = await su("sumare_funil", {});
+ok(!f.erro && ultimaUrlSumare === "https://api-nova.exemplo.com/v2/candidatos", "sumare: SUMARE_API_URL troca o endereço sem mexer no código");
+delete env.SUMARE_API_URL;
 
 // credencial
 env.SUMARE_API_PASS = "errada"; sumareConsultas.length = 0;
