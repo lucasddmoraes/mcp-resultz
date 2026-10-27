@@ -43,7 +43,8 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
 
 - Binding D1: `DB` (as tabelas `usuarios` e `log` são criadas sozinhas na primeira chamada).
 - Secrets: `ADMIN_TOKEN` (dono, mínimo 32 caracteres), `WOO_GDV_CK`, `WOO_GDV_CS`, `WOO_SH_CK`, `WOO_SH_CS`,
-  `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré).
+  `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré). Variável opcional
+  `SUMARE_API_URL` (base da API; padrão no código).
 - Secrets da área `midia`: `GOOGLE_SA_JSON` (JSON inteiro da chave da conta de serviço, ou o mesmo em base64),
   `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (MCC,
   só números), `META_ACCESS_TOKEN` (usuário do sistema da BM da Resultz) e `CLOUDFLARE_API_TOKEN` (leitura de
@@ -94,7 +95,9 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
 
 ## Detalhes da Sumaré (área `sumare`)
 
-- API Softsy: `https://gateway-sumare.softsy.io/dash-captacao/api/integracao/v1`, Basic Auth. `GET /filtros` (códigos
+- API: `https://painel.sumare.edu.br/captacao/api/integracao/v1` (desde 27/10/2026; antes
+  `https://gateway-sumare.softsy.io/dash-captacao/api/integracao/v1`), Basic Auth. A base pode ser trocada sem código
+  pela variável `SUMARE_API_URL` no painel. `GET /filtros` (códigos
   de cursos, polos, áreas, turnos, concursos, tipos de ingresso, campanhas, etapas) e `GET /candidatos` (um registro
   por inscrição; `tamanho` até 5000, `pagina`; filtros `etapas`, `status`, `cursos`, `polos`, `areas`, `turnos`,
   `concursos`, `tiposIngresso`). Não há filtro de data nem de campanha no servidor: o Worker filtra localmente.
@@ -182,6 +185,8 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   `access_token` (o Graph aceita trocar o verbo HTTP pelo parâmetro `method`, o que transformaria a ferramenta de
   leitura em escrita); o log mascara a lista de e-mails de `criar_cupom`; `midia_salvar_cliente` valida o formato
   dos IDs de conta, zona e banco D1 da Cloudflare antes de aceitá-los no caminho da API.
+- Versão 1.3.2 (27/10/2026): a API da Sumaré mudou de endereço e de senha. Senha trocada pelo Lucas no painel;
+  endereço novo no código (`painel.sumare.edu.br/captacao/api/integracao/v1`), com override por `SUMARE_API_URL`.
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
