@@ -49,9 +49,9 @@ ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.incl
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
 const pLoja = tl.tools.find((t) => t.name === "buscar_produtos").inputSchema.properties.loja;
-ok(pLoja.enum.includes("did") && pLoja.description.includes("did = Didática Educacional") && ini.instructions.includes("did = Didática Educacional (didaticaeducacional.com.br)"), "loja did (Didática) no schema e nas instruções");
-const semChave = await tool("buscar_produtos", { loja: "did", busca: "x" });
-ok(semChave.erro && String(semChave.d).includes("WOO_DID_CK"), "loja did sem chave cadastrada: erro claro");
+ok(pLoja.enum.includes("didatica") && pLoja.description.includes("didatica = Didática Educacional") && ini.instructions.includes("didatica = Didática Educacional (didaticaeducacional.com.br)"), "loja didatica no schema e nas instruções");
+const semChave = await tool("buscar_produtos", { loja: "didatica", busca: "x" });
+ok(semChave.erro && String(semChave.d).includes("WOO_DIDATICA_CK"), "loja didatica sem chave cadastrada: erro claro");
 ok(desc("relatorio_vendas").includes("Método de Pagamento, Email, Aluno, Produto, Qtde, Valor") && desc("relatorio_vendas").includes("Responsável e ID produto não entram"), "relatorio_vendas descreve as 9 colunas");
 ok(desc("alterar_preco_parcelas").includes("herda a configuração global") && desc("alterar_preco_parcelas").includes("filtro.parcelas_atuais"), "alterar_preco_parcelas descreve global x sobrescrita");
 

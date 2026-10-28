@@ -13,7 +13,7 @@
  *   ADMIN_TOKEN                       token do dono, mínimo 32 caracteres, só letras e números
  *   WOO_GDV_CK, WOO_GDV_CS            chave da API REST da loja GDV (Leitura/Escrita)
  *   WOO_SH_CK,  WOO_SH_CS             chave da API REST da loja Super Humanos (Leitura/Escrita)
- *   WOO_DID_CK, WOO_DID_CS            chave da API REST da loja Didática Educacional (Leitura/Escrita)
+ *   WOO_DIDATICA_CK, WOO_DIDATICA_CS  chave da API REST da loja Didática Educacional (Leitura/Escrita)
  *   SUMARE_API_USER, SUMARE_API_PASS  usuário e senha (Basic) da API do Dash de Captação da Sumaré
  *   (opcional) SUMARE_API_URL         base da API da Sumaré; padrão https://painel.sumare.edu.br/captacao/api/integracao/v1
  *   GOOGLE_SA_JSON, GOOGLE_ADS_*, META_ACCESS_TOKEN, CLOUDFLARE_API_TOKEN   área midia (ver midia.js)
@@ -35,7 +35,7 @@ const NOMES_AREAS = ["lojas", "sumare", "midia"]; // ao criar uma área nova em 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
   sh: { nome: "Colégio Super Humanos", host: "loja.colegiosuperhumanos.com.br", ck: "WOO_SH_CK", cs: "WOO_SH_CS" },
-  did: { nome: "Didática Educacional", host: "didaticaeducacional.com.br", ck: "WOO_DID_CK", cs: "WOO_DID_CS" },
+  didatica: { nome: "Didática Educacional", host: "didaticaeducacional.com.br", ck: "WOO_DIDATICA_CK", cs: "WOO_DIDATICA_CS" },
 };
 
 /* ------------------------------------------------------------------ utilidades */
