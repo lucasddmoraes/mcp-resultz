@@ -3,7 +3,7 @@
  * Servidor MCP remoto (Streamable HTTP, respostas JSON) em um único Cloudflare Worker, sem dependências.
  *
  * Endereço de cada conector:  https://mcp.resultz.com.br/<area>/<token>
- * Áreas disponíveis:          lojas (WooCommerce dos colégios GDV e Super Humanos)
+ * Áreas disponíveis:          lojas (WooCommerce: colégios GDV e Super Humanos, Didática Educacional)
  *                              sumare (Dash de Captação da Sumaré, API Softsy)
  *                              midia (tagueamento e mídia paga: Meta, Google Ads, GA4, GTM; código em midia.js)
  *
@@ -13,6 +13,7 @@
  *   ADMIN_TOKEN                       token do dono, mínimo 32 caracteres, só letras e números
  *   WOO_GDV_CK, WOO_GDV_CS            chave da API REST da loja GDV (Leitura/Escrita)
  *   WOO_SH_CK,  WOO_SH_CS             chave da API REST da loja Super Humanos (Leitura/Escrita)
+ *   WOO_DID_CK, WOO_DID_CS            chave da API REST da loja Didática Educacional (Leitura/Escrita)
  *   SUMARE_API_USER, SUMARE_API_PASS  usuário e senha (Basic) da API do Dash de Captação da Sumaré
  *   (opcional) SUMARE_API_URL         base da API da Sumaré; padrão https://painel.sumare.edu.br/captacao/api/integracao/v1
  *   GOOGLE_SA_JSON, GOOGLE_ADS_*, META_ACCESS_TOKEN, CLOUDFLARE_API_TOKEN   área midia (ver midia.js)
@@ -24,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.4.0";
+const VERSAO = "1.5.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -34,6 +35,7 @@ const NOMES_AREAS = ["lojas", "sumare", "midia"]; // ao criar uma área nova em 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
   sh: { nome: "Colégio Super Humanos", host: "loja.colegiosuperhumanos.com.br", ck: "WOO_SH_CK", cs: "WOO_SH_CS" },
+  did: { nome: "Didática Educacional", host: "didaticaeducacional.com.br", ck: "WOO_DID_CK", cs: "WOO_DID_CS" },
 };
 
 /* ------------------------------------------------------------------ utilidades */
@@ -474,7 +476,11 @@ function alunoDoEmail(email) {
 
 /* ------------------------------------------------------------------ ferramentas: lojas */
 
-const P_LOJA = { type: "string", enum: Object.keys(LOJAS), description: "gdv = Colégio GDV; sh = Colégio Super Humanos" };
+const P_LOJA = {
+  type: "string",
+  enum: Object.keys(LOJAS),
+  description: Object.entries(LOJAS).map(([k, l]) => `${k} = ${l.nome}`).join("; "),
+};
 const P_MOTIVO = {
   type: "string",
   description: "O pedido do usuário que originou esta ação, nas palavras dele. Vai para o log de auditoria.",
@@ -2108,8 +2114,8 @@ const AREAS = {
     ferramentas: [...FERRAMENTAS_LOJAS, ...FERRAMENTAS_CLIENTES],
     instrucoes: (u, env) =>
       [
-        `Conector das lojas WooCommerce dos colégios atendidos pela Resultz. Lojas: gdv = ${LOJAS.gdv.nome} (${LOJAS.gdv.host}); ` +
-          `sh = ${LOJAS.sh.nome} (${LOJAS.sh.host}).`,
+        "Conector das lojas WooCommerce atendidas pela Resultz. Lojas: " +
+          Object.entries(LOJAS).map(([k, l]) => `${k} = ${l.nome} (${l.host})`).join("; ") + ".",
         `Conectado como ${u.nome}, papel ${u.papel}. Toda chamada fica registrada em log de auditoria com esse nome.`,
         "Regras:",
         "1. Antes de alterar, localize os itens com buscar_produtos. Se o pedido puder se referir a mais de um produto, pergunte ao usuário qual.",

@@ -43,6 +43,7 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
 
 - Binding D1: `DB` (as tabelas `usuarios` e `log` são criadas sozinhas na primeira chamada).
 - Secrets: `ADMIN_TOKEN` (dono, mínimo 32 caracteres), `WOO_GDV_CK`, `WOO_GDV_CS`, `WOO_SH_CK`, `WOO_SH_CS`,
+  `WOO_DID_CK`, `WOO_DID_CS`,
   `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré). Variável opcional
   `SUMARE_API_URL` (base da API; padrão no código).
 - Secrets da área `midia`: `GOOGLE_SA_JSON` (JSON inteiro da chave da conta de serviço, ou o mesmo em base64),
@@ -86,6 +87,10 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
 
 ## Detalhes das lojas (WooCommerce)
 
+- Lojas em `LOJAS` no `worker.js`: `gdv` (loja.gdv.com.br), `sh` (loja.colegiosuperhumanos.com.br) e `did` (Didática
+  Educacional, didaticaeducacional.com.br, sem `www`). Loja nova = uma linha em `LOJAS` + secrets `WOO_<SIGLA>_CK/CS`;
+  schema e instruções se montam sozinhos a partir de `LOJAS`. Quem tem `lojas = *` enxerga a nova na hora; os outros
+  precisam de `gerenciar_acessos` (acao `alterar`, campo `lojas`, com a lista inteira).
 - Parcelamento vem do plugin WooCommerce Parcelas: meta `fswp_post_meta`, campo `installment_qty`. Ao gravar,
   enviar o objeto inteiro trocando só `installment_qty`. Vazio ou ausente = herda o global.
 - Autenticação na API: Basic Auth. Chave na query string falha em POST/PUT nessas lojas.
@@ -206,6 +211,9 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
 - Versão 1.4.0 (28/10/2026): grupos de clientes do B2BKing na área `lojas` (`grupos_clientes`, `nomear_grupos`,
   `buscar_clientes`, `virada_grupos`). Testada com `test-offline.mjs` (60 verificações, 19 delas de clientes) e
   `test-midia.mjs` (55). Ainda não usada em produção: primeiro uso previsto num cliente de teste.
+- Versão 1.5.0 (28/10/2026): loja `did` (Didática Educacional) na área `lojas`. Motivo: os grupos do B2BKing (turmas)
+  não estão nas lojas do GDV nem do Super Humanos (`grupos_clientes` deu 0 clientes em grupo nas duas). Testada com
+  `test-offline.mjs` (62). Pendente: Lucas gerar a chave da API na loja e cadastrar `WOO_DID_CK` e `WOO_DID_CS`.
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
