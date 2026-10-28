@@ -24,7 +24,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.3.2";
+const VERSAO = "1.4.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -124,6 +124,13 @@ async function garantirSchema(env) {
       detalhe TEXT)`),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_log_ts ON log(ts)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_log_usuario ON log(usuario)"),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS grupos_clientes (
+      loja TEXT NOT NULL,
+      grupo_id TEXT NOT NULL,
+      nome TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+      atualizado_por TEXT,
+      PRIMARY KEY (loja, grupo_id))`),
   ]);
   schemaPronto = true;
 }
@@ -1168,6 +1175,329 @@ const FERRAMENTAS_LOJAS = [
   },
 ];
 
+/* ------------------------------------------------------------------ clientes das lojas: grupos do B2BKing */
+
+// O plugin B2BKing guarda o grupo do cliente em dois campos do usuário: b2bking_customergroup (número do grupo,
+// que é o ID do post do grupo) e b2bking_b2buser ("yes" para quem está num grupo B2B). A API não informa o nome
+// do grupo: o mapa número -> nome fica na tabela grupos_clientes, mantida por admin com nomear_grupos.
+const META_GRUPO = "b2bking_customergroup";
+const META_B2B = "b2bking_b2buser";
+const MAX_PAGINAS_CLIENTES = 100; // 10 mil clientes; acima disso a varredura parcial deixaria a virada incompleta
+
+async function todosClientes(env, loja) {
+  const pagina = (page) =>
+    woo(env, loja, "GET", "customers", {
+      query: { per_page: 100, page, role: "all", orderby: "id", order: "asc", _fields: "id,first_name,last_name,email,meta_data" },
+    });
+  const primeira = await pagina(1);
+  const total = primeira.paginas || 1;
+  if (total > MAX_PAGINAS_CLIENTES) falha(`A loja ${loja} tem mais de ${MAX_PAGINAS_CLIENTES * 100} clientes: varredura não suportada.`);
+  const respostas = [primeira];
+  for (let p = 2; p <= total; p += 6) {
+    const lote = [];
+    for (let q = p; q < p + 6 && q <= total; q++) lote.push(pagina(q));
+    respostas.push(...(await Promise.all(lote)));
+  }
+  return respostas.flatMap((r) => r.dados).map(resumoCliente);
+}
+
+function resumoCliente(c) {
+  const meta = Object.fromEntries((c.meta_data || []).map((m) => [m.key, m.value]));
+  const grupo = meta[META_GRUPO];
+  return {
+    id: c.id,
+    nome: `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+    email: c.email,
+    grupo: grupo !== undefined && grupo !== null && grupo !== "" && grupo !== "no" ? String(grupo) : null,
+    b2b: meta[META_B2B] === "yes",
+  };
+}
+
+async function nomesGrupos(env, loja) {
+  const { results } = await env.DB.prepare("SELECT grupo_id, nome FROM grupos_clientes WHERE loja = ?1").bind(loja).all();
+  return Object.fromEntries(results.map((r) => [r.grupo_id, r.nome]));
+}
+
+function resolverGrupo(ref, nomes) {
+  const r = String(ref ?? "").trim();
+  if (!r) falha("Grupo vazio.");
+  if (/^\d+$/.test(r)) return r;
+  const achados = Object.entries(nomes).filter(([, n]) => norm(n) === norm(r));
+  if (achados.length === 1) return achados[0][0];
+  if (achados.length > 1) falha(`Nome de grupo repetido no mapa: "${r}". Use o número do grupo.`);
+  const opcoes = Object.values(nomes).sort();
+  falha(`Grupo "${r}" não está no mapa de nomes. ${opcoes.length ? `Nomes mapeados: ${opcoes.join("; ")}.` : "Nenhum grupo nomeado ainda."} Use grupos_clientes e nomear_grupos.`);
+}
+
+const nomeGrupo = (id, nomes) => (id ? nomes[id] || `#${id}` : "sem grupo");
+
+const FERRAMENTAS_CLIENTES = [
+  {
+    nome: "grupos_clientes",
+    titulo: "Grupos de clientes (B2BKing)",
+    tipo: "leitura",
+    papel: "editor",
+    idempotente: true,
+    descricao:
+      "Mostra os grupos de clientes do plugin B2BKing (turmas como '7º Ano EF', '3ª Série EM') com o número de cada " +
+      "grupo, o nome mapeado e quantos clientes há em cada um, além de quantos estão sem grupo. A API só informa o " +
+      "número; grupos em 'sem_nome' precisam ser nomeados por um admin com nomear_grupos (o número aparece no endereço " +
+      "da página do grupo em wp-admin > B2BKing > Groups).",
+    entrada: { type: "object", properties: { loja: P_LOJA }, required: ["loja"] },
+    async executar(a, c) {
+      const [clientes, nomes] = await Promise.all([todosClientes(c.env, a.loja), nomesGrupos(c.env, a.loja)]);
+      const cont = {};
+      for (const x of clientes) if (x.grupo) cont[x.grupo] = (cont[x.grupo] || 0) + 1;
+      for (const id of Object.keys(nomes)) cont[id] = cont[id] || 0;
+      const grupos = Object.entries(cont)
+        .map(([id, n]) => ({ grupo_id: id, nome: nomes[id] || null, clientes: n }))
+        .sort((p, q) => String(p.nome ?? "~").localeCompare(String(q.nome ?? "~"), "pt-BR") || Number(p.grupo_id) - Number(q.grupo_id));
+      return {
+        dados: {
+          loja: a.loja,
+          total_clientes: clientes.length,
+          sem_grupo: clientes.filter((x) => !x.grupo).length,
+          grupos,
+          sem_nome: grupos.filter((g) => !g.nome).map((g) => g.grupo_id),
+        },
+        log: { alvo: `${grupos.length} grupos, ${clientes.length} clientes` },
+      };
+    },
+  },
+
+  {
+    nome: "nomear_grupos",
+    titulo: "Nomear grupos de clientes",
+    tipo: "escrita",
+    papel: "admin",
+    descricao:
+      "Grava no conector o nome de cada número de grupo do B2BKing (ex.: 253 = '7º Ano EF'). Não mexe na loja. Confira " +
+      "os números em wp-admin > B2BKing > Groups (o número fica no endereço da página do grupo).",
+    entrada: {
+      type: "object",
+      properties: {
+        loja: P_LOJA,
+        grupos: {
+          type: "array",
+          minItems: 1,
+          items: { type: "object", properties: { grupo_id: { type: "string" }, nome: { type: "string" } }, required: ["grupo_id", "nome"] },
+        },
+        motivo: P_MOTIVO,
+      },
+      required: ["loja", "grupos", "motivo"],
+    },
+    async executar(a, c) {
+      const itens = (a.grupos || []).map((g) => ({ id: String(g.grupo_id ?? "").trim(), nome: String(g.nome ?? "").trim() }));
+      if (!itens.length) falha("Informe ao menos um grupo.");
+      for (const g of itens) {
+        if (!/^\d+$/.test(g.id)) falha(`Número de grupo inválido: ${g.id}`);
+        if (!g.nome || g.nome.length > 80) falha(`Nome inválido para o grupo ${g.id}.`);
+      }
+      const antes = await nomesGrupos(c.env, a.loja);
+      const depois = { ...antes, ...Object.fromEntries(itens.map((g) => [g.id, g.nome])) };
+      const repetidos = Object.values(depois).filter((n, i, arr) => arr.findIndex((x) => norm(x) === norm(n)) !== i);
+      if (repetidos.length) falha(`Dois grupos ficariam com o mesmo nome: ${[...new Set(repetidos)].join(", ")}.`);
+      await c.env.DB.batch(
+        itens.map((g) =>
+          c.env.DB.prepare(
+            `INSERT INTO grupos_clientes (loja, grupo_id, nome, atualizado_por) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(loja, grupo_id) DO UPDATE SET nome = ?3, atualizado_em = datetime('now'), atualizado_por = ?4`
+          ).bind(a.loja, g.id, g.nome, c.usuario.nome)
+        )
+      );
+      return {
+        dados: { loja: a.loja, gravados: itens.length, mapa: depois },
+        log: { alvo: `${itens.length} nomes de grupo`, antes, depois },
+      };
+    },
+  },
+
+  {
+    nome: "buscar_clientes",
+    titulo: "Buscar clientes por grupo",
+    tipo: "leitura",
+    papel: "editor",
+    exigeMotivo: true,
+    idempotente: true,
+    descricao:
+      "Lista clientes da loja (id, nome, e-mail, grupo do B2BKing) de um grupo e/ou por trecho de nome ou e-mail, em " +
+      "páginas de 250. São dados de famílias: exige 'motivo', fica no log e serve para conferir uma virada de grupos. " +
+      "No chat, mostre só o necessário.",
+    entrada: {
+      type: "object",
+      properties: {
+        loja: P_LOJA,
+        grupo: { type: "string", description: "Nome mapeado ou número do grupo. 'sem grupo' para quem não tem." },
+        busca: { type: "string", description: "Trecho de nome ou e-mail" },
+        pagina: { type: "integer", minimum: 1 },
+        motivo: P_MOTIVO,
+      },
+      required: ["loja", "motivo"],
+    },
+    async executar(a, c) {
+      if (!a.grupo && !a.busca) falha("Informe 'grupo' e/ou 'busca'.");
+      const nomes = await nomesGrupos(c.env, a.loja);
+      let lista;
+      if (a.busca && !a.grupo) {
+        const { dados } = await woo(c.env, a.loja, "GET", "customers", {
+          query: { search: a.busca, role: "all", per_page: 100, _fields: "id,first_name,last_name,email,meta_data" },
+        });
+        lista = dados.map(resumoCliente);
+      } else {
+        lista = await todosClientes(c.env, a.loja);
+        if (norm(a.grupo) === "sem grupo") lista = lista.filter((x) => !x.grupo);
+        else {
+          const id = resolverGrupo(a.grupo, nomes);
+          lista = lista.filter((x) => x.grupo === id);
+        }
+        if (a.busca) lista = lista.filter((x) => norm(`${x.nome} ${x.email}`).includes(norm(a.busca)));
+      }
+      const TAM = 250;
+      const totalPaginas = Math.max(1, Math.ceil(lista.length / TAM));
+      const pagina = Math.min(Math.max(parseInt(a.pagina || 1, 10), 1), totalPaginas);
+      return {
+        dados: {
+          loja: a.loja,
+          total: lista.length,
+          pagina,
+          total_paginas: totalPaginas,
+          colunas: ["id", "nome", "email", "grupo_id", "grupo"],
+          linhas: lista.slice((pagina - 1) * TAM, pagina * TAM).map((x) => [x.id, x.nome, x.email, x.grupo, nomeGrupo(x.grupo, nomes)]),
+        },
+        log: { alvo: `${lista.length} clientes`, detalhe: `grupo=${a.grupo || "-"}; página ${pagina}/${totalPaginas}` },
+      };
+    },
+  },
+
+  {
+    nome: "virada_grupos",
+    titulo: "Virada de ano dos grupos de clientes",
+    tipo: "escrita",
+    papel: "editor",
+    destrutiva: true,
+    descricao:
+      "Move clientes de um grupo do B2BKing para outro em lote, para a virada de ano (ex.: '7º Ano EF' -> '8º Ano EF'). " +
+      "Duas etapas obrigatórias: 1) chame com aplicar=false para gerar o plano e o codigo_confirmacao; 2) mostre ao " +
+      "usuário quantos clientes saem de cada grupo para qual e, só com confirmação explícita, chame de novo com os " +
+      "mesmos 'mudancas', aplicar=true e o código. Cada cliente se move uma vez só, pelo grupo que tem antes da virada " +
+      "(quem vai do 7º para o 8º não segue para o 9º na mesma virada). O grupo de destino precisa estar nomeado " +
+      "(nomear_grupos). Depois de aplicar, peça para conferir um cliente movido no site: o B2BKing recomenda limpar o " +
+      "cache dele depois de alterações feitas fora do painel, e regras ou preços por grupo podem demorar a refletir.",
+    entrada: {
+      type: "object",
+      properties: {
+        loja: P_LOJA,
+        mudancas: {
+          type: "array",
+          minItems: 1,
+          maxItems: 40,
+          items: {
+            type: "object",
+            properties: { de: { type: "string", description: "Nome ou número do grupo atual" }, para: { type: "string", description: "Nome ou número do grupo novo" } },
+            required: ["de", "para"],
+          },
+        },
+        aplicar: { type: "boolean", description: "false = só simula (padrão). true = grava, exige codigo_confirmacao." },
+        codigo_confirmacao: { type: "string" },
+        motivo: P_MOTIVO,
+      },
+      required: ["loja", "mudancas", "motivo"],
+    },
+    async executar(a, c) {
+      const nomes = await nomesGrupos(c.env, a.loja);
+      const mapa = {};
+      const ordem = [];
+      for (const m of a.mudancas || []) {
+        const de = resolverGrupo(m.de, nomes);
+        const para = resolverGrupo(m.para, nomes);
+        if (!nomes[para]) falha(`O grupo de destino #${para} não está nomeado. Confira o número no wp-admin e use nomear_grupos.`);
+        if (de === para) falha(`Origem e destino iguais: ${nomeGrupo(de, nomes)}.`);
+        if (mapa[de]) falha(`O grupo ${nomeGrupo(de, nomes)} aparece duas vezes como origem.`);
+        mapa[de] = para;
+        ordem.push([de, para]);
+      }
+      if (!ordem.length) falha("Informe ao menos uma mudança.");
+
+      const clientes = await todosClientes(c.env, a.loja);
+      const plano = clientes.filter((x) => x.grupo && mapa[x.grupo]).map((x) => ({ id: x.id, nome: x.nome, de: x.grupo, para: mapa[x.grupo] }));
+      const resumo = ordem.map(([de, para]) => {
+        const itens = plano.filter((p) => p.de === de);
+        return { de: nomeGrupo(de, nomes), de_id: de, para: nomeGrupo(para, nomes), para_id: para, clientes: itens.length, amostra: itens.slice(0, 5).map((p) => p.nome) };
+      });
+      const codigo = (await sha256(JSON.stringify([a.loja, plano.map((p) => [p.id, p.de, p.para])]))).slice(0, 8);
+
+      if (!a.aplicar) {
+        return {
+          dados: {
+            simulacao: true,
+            loja: a.loja,
+            total_alterar: plano.length,
+            resumo,
+            codigo_confirmacao: plano.length ? codigo : null,
+            proximo_passo: plano.length
+              ? "Mostre o resumo ao usuário. Só com confirmação explícita, chame de novo com os mesmos 'mudancas', aplicar=true e este codigo_confirmacao."
+              : "Nenhum cliente nos grupos de origem.",
+          },
+          log: { resultado: "simulacao", alvo: `${plano.length} clientes (${resumo.map((r) => `${r.de}->${r.para}: ${r.clientes}`).join("; ")})` },
+        };
+      }
+
+      if (!plano.length) falha("Nada a alterar com essas mudanças.");
+      if (a.codigo_confirmacao !== codigo) {
+        falha("Os grupos mudaram desde a simulação ou o código não confere. Rode a simulação de novo e confirme com o usuário.");
+      }
+
+      let erroLote = null;
+      const recusados = [];
+      for (let i = 0; i < plano.length && !erroLote; i += 100) {
+        const fatia = plano.slice(i, i + 100);
+        try {
+          const { dados } = await woo(c.env, a.loja, "POST", "customers/batch", {
+            corpo: {
+              update: fatia.map((p) => ({ id: p.id, meta_data: [{ key: META_GRUPO, value: p.para }, { key: META_B2B, value: "yes" }] })),
+            },
+          });
+          for (const x of dados.update || []) if (x.error) recusados.push({ id: x.id, erro: x.error.message });
+        } catch (e) {
+          erroLote = e.message;
+        }
+      }
+
+      // Confere relendo os clientes alterados
+      const depoisPorId = {};
+      const ids = plano.map((p) => p.id);
+      for (let i = 0; i < ids.length; i += 100) {
+        const { dados } = await woo(c.env, a.loja, "GET", "customers", {
+          query: { include: ids.slice(i, i + 100), per_page: 100, role: "all", _fields: "id,first_name,last_name,email,meta_data" },
+        });
+        for (const x of dados.map(resumoCliente)) depoisPorId[x.id] = x.grupo;
+      }
+      const falhas = plano.filter((p) => depoisPorId[p.id] !== p.para).map((p) => ({ id: p.id, nome: p.nome, grupo_agora: nomeGrupo(depoisPorId[p.id], nomes) }));
+      return {
+        dados: {
+          aplicado: true,
+          loja: a.loja,
+          movidos: plano.length - falhas.length,
+          falhas,
+          recusados,
+          erro: erroLote,
+          resumo: resumo.map(({ amostra, ...r }) => r),
+          conferir:
+            "Abra no wp-admin um cliente movido e confira o grupo; no site, confira se regras e preços do grupo novo " +
+            "aparecem para ele. O B2BKing recomenda limpar o cache dele depois de alterações feitas fora do painel.",
+        },
+        log: {
+          resultado: erroLote || falhas.length ? "parcial" : "ok",
+          alvo: `${plano.length} clientes (${resumo.map((r) => `${r.de}->${r.para}: ${r.clientes}`).join("; ")})`,
+          antes: Object.fromEntries(plano.map((p) => [p.id, p.de])),
+          depois: Object.fromEntries(plano.map((p) => [p.id, depoisPorId[p.id] ?? null])),
+          detalhe: erroLote || (recusados.length ? JSON.stringify(recusados).slice(0, 1500) : null),
+        },
+      };
+    },
+  },
+];
+
 /* ------------------------------------------------------------------ Sumaré (Dash de Captação, API Softsy) */
 
 // Endereço da API do Dash de Captação. Pode ser trocado sem código pela variável SUMARE_API_URL no painel.
@@ -1775,7 +2105,7 @@ const FERRAMENTAS_COMUNS = [
 const AREAS = {
   lojas: {
     titulo: "Lojas dos colégios (WooCommerce)",
-    ferramentas: FERRAMENTAS_LOJAS,
+    ferramentas: [...FERRAMENTAS_LOJAS, ...FERRAMENTAS_CLIENTES],
     instrucoes: (u, env) =>
       [
         `Conector das lojas WooCommerce dos colégios atendidos pela Resultz. Lojas: gdv = ${LOJAS.gdv.nome} (${LOJAS.gdv.host}); ` +
@@ -1793,6 +2123,8 @@ const AREAS = {
           "erro e pare.",
         "8. O plugin WooCommerce Parcelas foi retirado do repositório do WordPress em 26/10/2025 e não recebe mais " +
           "atualizações; continua funcionando. Só mencione se o assunto surgir.",
+        "9. Clientes (B2BKing): grupos_clientes mostra as turmas e quantos clientes há em cada; a virada de ano é com " +
+          "virada_grupos, sempre simulando antes e aplicando só com confirmação explícita, como nos preços.",
       ].join("\n"),
   },
   midia: criarAreaMidia({ falha, norm, P_MOTIVO, corta }),

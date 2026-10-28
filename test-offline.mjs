@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.3.2", "versão 1.3.2");
+ok(ini.serverInfo.version === "1.4.0", "versão 1.4.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -203,3 +203,87 @@ ok(e.erro && e.d.includes("401"), "sumare: credencial recusada vira erro claro")
 delete env.SUMARE_API_PASS;
 e = await su("sumare_funil", {});
 ok(e.erro && e.d.includes("não está configurada"), "sumare: sem secret, erro claro");
+
+// ---------- clientes da loja: grupos do B2BKing (250 clientes fictícios em 3 páginas)
+const clientesLoja = [];
+for (let i = 1; i <= 250; i++) {
+  const grupo = i <= 120 ? "101" : i <= 200 ? "102" : i <= 230 ? "103" : null; // 7º Ano, 8º Ano, 3ª Série, sem grupo
+  const meta = [{ id: i * 10, key: "_ultimo_login", value: "x" }];
+  if (grupo) meta.push({ id: i * 10 + 1, key: "b2bking_customergroup", value: grupo }, { id: i * 10 + 2, key: "b2bking_b2buser", value: "yes" });
+  clientesLoja.push({ id: i, first_name: `Familia`, last_name: `${i}`, email: `familia${i}@exemplo.com`, meta_data: meta });
+}
+const consultasClientes = [];
+const fetchAntesClientes = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(url);
+  if (!u.pathname.includes("/wc/v3/customers")) return fetchAntesClientes(url, init);
+  const m = (init.method || "GET").toUpperCase();
+  const json = (d, total = d.length, paginas = 1) => new Response(JSON.stringify(d), { status: 200, headers: { "X-WP-Total": String(total), "X-WP-TotalPages": String(paginas) } });
+  if (m === "POST" && u.pathname.endsWith("/customers/batch")) {
+    const b = JSON.parse(init.body);
+    const update = b.update.map((up) => {
+      if (up.id === 5) return { id: 5, error: { code: "x", message: "falha simulada" } };
+      const cli = clientesLoja.find((x) => x.id === up.id);
+      for (const md of up.meta_data) {
+        const ex = cli.meta_data.find((x) => x.key === md.key);
+        if (ex) ex.value = md.value; else cli.meta_data.push({ key: md.key, value: md.value });
+      }
+      return { id: up.id };
+    });
+    return json({ update });
+  }
+  consultasClientes.push(Object.fromEntries(u.searchParams));
+  const q = u.searchParams;
+  let lista = clientesLoja;
+  if (q.get("include")) { const ids = q.get("include").split(",").map(Number); lista = lista.filter((x) => ids.includes(x.id)); }
+  if (q.get("search")) lista = lista.filter((x) => `${x.first_name} ${x.last_name} ${x.email}`.includes(q.get("search")));
+  const per = Number(q.get("per_page") || 10), pag = Number(q.get("page") || 1);
+  return json(structuredClone(lista.slice((pag - 1) * per, pag * per)), lista.length, Math.max(1, Math.ceil(lista.length / per)));
+};
+const cl = (name, args, token = ADMIN) => toolArea("lojas", token, name, args);
+
+ac = await toolArea("lojas", ADMIN, "gerenciar_acessos", { acao: "criar", nome: "Leitor Lojas", papel: "leitor", lojas: ["gdv"] });
+const LEIL = ac.d.links.lojas.split("/").pop();
+ac = await toolArea("lojas", ADMIN, "gerenciar_acessos", { acao: "criar", nome: "Editor Lojas", papel: "editor", lojas: ["gdv"] });
+const EDL = ac.d.links.lojas.split("/").pop();
+s = await rpcArea("lojas", LEIL, "tools/list", {});
+ok(!s.json.result.tools.some((x) => ["grupos_clientes", "buscar_clientes", "virada_grupos", "nomear_grupos"].includes(x.name)), "clientes: leitor não vê as ferramentas de clientes");
+s = await rpcArea("lojas", EDL, "tools/list", {});
+const nomesEd = s.json.result.tools.map((x) => x.name);
+ok(nomesEd.includes("virada_grupos") && nomesEd.includes("grupos_clientes") && !nomesEd.includes("nomear_grupos"), "clientes: editor vê virada e grupos, não vê nomear_grupos");
+
+let g = await cl("grupos_clientes", { loja: "gdv" }, EDL);
+ok(!g.erro && g.d.total_clientes === 250 && g.d.sem_grupo === 20 && g.d.sem_nome.join() === "101,102,103" && consultasClientes.every((q) => q.role === "all"), `clientes: grupos em uso ${g.d.grupos?.map((x) => `${x.grupo_id}:${x.clientes}`).join(" ")} (3 páginas lidas)`);
+g = await cl("virada_grupos", { loja: "gdv", mudancas: [{ de: "101", para: "102" }], motivo: "teste" }, EDL);
+ok(g.erro && g.d.includes("não está nomeado"), "clientes: destino sem nome é recusado");
+g = await cl("nomear_grupos", { loja: "gdv", grupos: [{ grupo_id: "101", nome: "7º Ano EF" }], motivo: "teste" }, EDL);
+ok(g.erro, "clientes: editor não nomeia grupos");
+g = await cl("nomear_grupos", { loja: "gdv", grupos: [{ grupo_id: "101", nome: "7º Ano EF" }, { grupo_id: "102", nome: "8º Ano EF" }, { grupo_id: "103", nome: "3ª Série EM" }, { grupo_id: "104", nome: "9º Ano EF" }], motivo: "mapear as turmas do GDV" });
+ok(!g.erro && g.d.gravados === 4 && g.d.mapa["104"] === "9º Ano EF", "clientes: admin nomeia os grupos");
+g = await cl("nomear_grupos", { loja: "gdv", grupos: [{ grupo_id: "105", nome: "7º ano ef" }], motivo: "teste" });
+ok(g.erro && g.d.includes("mesmo nome"), "clientes: recusa dois grupos com o mesmo nome");
+
+const mudancas = [{ de: "8º Ano EF", para: "9º Ano EF" }, { de: "7º Ano EF", para: "8º Ano EF" }];
+let sim = await cl("virada_grupos", { loja: "gdv", mudancas, motivo: "virada de ano 2027" }, EDL);
+ok(!sim.erro && sim.d.simulacao && sim.d.total_alterar === 200 && sim.d.resumo.map((r) => `${r.de}->${r.para}:${r.clientes}`).join("|") === "8º Ano EF->9º Ano EF:80|7º Ano EF->8º Ano EF:120", `clientes: simulação ${JSON.stringify(sim.d.resumo?.map((r) => r.clientes))}, código ${sim.d.codigo_confirmacao}`);
+ok(clientesLoja.filter((x) => x.meta_data.some((m) => m.key === "b2bking_customergroup" && m.value === "104")).length === 0, "clientes: simulação não grava nada");
+g = await cl("virada_grupos", { loja: "gdv", mudancas, aplicar: true, codigo_confirmacao: "errado", motivo: "virada" }, EDL);
+ok(g.erro && g.d.includes("não confere"), "clientes: código errado bloqueia a aplicação");
+g = await cl("virada_grupos", { loja: "gdv", mudancas: [{ de: "7º Ano EF", para: "7º Ano EF" }], motivo: "x" }, EDL);
+ok(g.erro && g.d.includes("iguais"), "clientes: origem igual ao destino é recusada");
+let ap = await cl("virada_grupos", { loja: "gdv", mudancas, aplicar: true, codigo_confirmacao: sim.d.codigo_confirmacao, motivo: "virada de ano 2027" }, EDL);
+const grupoDe = (id) => clientesLoja.find((x) => x.id === id).meta_data.find((m) => m.key === "b2bking_customergroup")?.value;
+ok(!ap.erro && ap.d.movidos === 199 && ap.d.falhas.length === 1 && ap.d.falhas[0].id === 5 && ap.d.recusados[0].erro === "falha simulada", "clientes: aplica em lote, relê e aponta o cliente que a loja recusou");
+ok(grupoDe(1) === "102" && grupoDe(121) === "104" && grupoDe(5) === "101" && grupoDe(201) === "103", "clientes: cada cliente se move uma vez só (7º vai para 8º, 8º vai para 9º, sem efeito cascata)");
+g = await cl("grupos_clientes", { loja: "gdv" }, EDL);
+const cont = Object.fromEntries(g.d.grupos.map((x) => [x.grupo_id, x.clientes]));
+ok(cont["101"] === 1 && cont["102"] === 119 && cont["104"] === 80 && cont["103"] === 30, `clientes: contagem depois ${JSON.stringify(cont)}`);
+g = await cl("buscar_clientes", { loja: "gdv", grupo: "9º Ano EF" }, EDL);
+ok(g.erro && g.d.includes("motivo"), "clientes: busca sem motivo é bloqueada");
+g = await cl("buscar_clientes", { loja: "gdv", grupo: "9º Ano EF", motivo: "conferir a virada" }, EDL);
+ok(!g.erro && g.d.total === 80 && g.d.linhas[0][4] === "9º Ano EF", "clientes: busca por grupo depois da virada");
+g = await cl("buscar_clientes", { loja: "gdv", grupo: "sem grupo", motivo: "conferir" }, EDL);
+ok(!g.erro && g.d.total === 20, "clientes: busca de quem está sem grupo");
+const lgc = await toolArea("lojas", ADMIN, "consultar_log", { ferramenta: "virada_grupos" });
+const regAp = lgc.d.registros.find((x) => x.resultado === "parcial");
+ok(regAp && regAp.usuario === "Editor Lojas" && regAp.motivo === "virada de ano 2027" && regAp.antes.includes('"1":"101"') && !JSON.stringify(lgc.d).includes("@exemplo.com"), "clientes: log com quem, motivo e antes/depois por ID, sem e-mails");

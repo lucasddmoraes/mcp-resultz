@@ -24,7 +24,7 @@ personalizado do Claude sem OAuth. Se o time crescer, evoluir para login Google 
   Rodar os testes depois de qualquer mudança.
 - `test-offline.mjs`: testes sem acesso às lojas (`npm run test:offline`), com D1 e WooCommerce simulados em memória.
   Cobre rotas, instruções, descrições, simulação/aplicação de preço e parcelas, a área `sumare` inteira (API Softsy
-  simulada com dados fictícios), papéis e log. Roda em qualquer lugar; usar quando não houver chaves para o `test.mjs`.
+  simulada com dados fictícios), grupos de clientes do B2BKing (virada de ano), papéis e log. Roda em qualquer lugar; usar quando não houver chaves para o `test.mjs`.
 - `wrangler.jsonc`: configuração lida pela integração Git da Cloudflare no deploy (nome do Worker, D1, domínio).
 - `.dev.vars.example`: modelo de segredos para rodar localmente. O arquivo real `.dev.vars` nunca vai para o git.
 - `public/`: página da raiz (`index.html`, mostra "MCP Resultz ativo." e anuncia o favicon no `<head>`) e ícones
@@ -92,6 +92,22 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
 - Relatório filtra pedidos por produto na API (`product=<id>`) sempre que possível; varrer todos os pedidos é
   lento e estoura o limite de CPU do plano gratuito.
 - Pedidos do e-mail login@resultzads.com ficam fora dos relatórios.
+
+## Grupos de clientes (B2BKing, área `lojas`)
+
+- O plugin B2BKing ("B2B User Settings") guarda a turma do cliente no meta de usuário `b2bking_customergroup` (ID do
+  post do grupo) e `b2bking_b2buser` ("yes"/"no"). Lido e gravado pela API de clientes do WooCommerce (`role=all`,
+  `customers/batch` em lotes de 100). A API não devolve o nome do grupo: o mapa número -> nome fica na tabela
+  `grupos_clientes` do D1 (criada sozinha), mantida pelo admin com `nomear_grupos` (IDs em wp-admin > B2BKing > Groups).
+- Ferramentas: `grupos_clientes` (editor; quantos clientes em cada grupo), `nomear_grupos` (admin), `buscar_clientes`
+  (editor, exige `motivo`; dados pessoais, páginas de 250) e `virada_grupos` (editor; virada de ano em lote).
+- `virada_grupos` segue o padrão dos preços: simulação, `codigo_confirmacao` (hash do plano), aplicação e releitura
+  para conferir. O plano é montado a partir da foto atual, então cada cliente muda uma única vez (7º -> 8º e 8º -> 9º
+  no mesmo pedido não empurra ninguém duas vezes). Destino precisa estar nomeado. O log guarda antes/depois por ID,
+  sem e-mails.
+- Cuidado: o B2BKing recomenda limpar os caches dele depois de mudança feita por fora do painel, e a API não faz
+  isso. Depois de uma virada, conferir no site se preços e regras do grupo novo aparecem; se não, limpar o cache do
+  B2BKing pelo wp-admin.
 
 ## Detalhes da Sumaré (área `sumare`)
 
@@ -187,6 +203,9 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   dos IDs de conta, zona e banco D1 da Cloudflare antes de aceitá-los no caminho da API.
 - Versão 1.3.2 (27/10/2026): a API da Sumaré mudou de endereço e de senha. Senha trocada pelo Lucas no painel;
   endereço novo no código (`painel.sumare.edu.br/captacao/api/integracao/v1`), com override por `SUMARE_API_URL`.
+- Versão 1.4.0 (28/10/2026): grupos de clientes do B2BKing na área `lojas` (`grupos_clientes`, `nomear_grupos`,
+  `buscar_clientes`, `virada_grupos`). Testada com `test-offline.mjs` (60 verificações, 19 delas de clientes) e
+  `test-midia.mjs` (55). Ainda não usada em produção: primeiro uso previsto num cliente de teste.
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
