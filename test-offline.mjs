@@ -44,10 +44,14 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.4.0", "versão 1.4.0");
+ok(ini.serverInfo.version === "1.5.0", "versão 1.5.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
+const pLoja = tl.tools.find((t) => t.name === "buscar_produtos").inputSchema.properties.loja;
+ok(pLoja.enum.includes("didatica") && pLoja.description.includes("didatica = Didática Educacional") && ini.instructions.includes("didatica = Didática Educacional (didaticaeducacional.com.br)"), "loja didatica no schema e nas instruções");
+const semChave = await tool("buscar_produtos", { loja: "didatica", busca: "x" });
+ok(semChave.erro && String(semChave.d).includes("WOO_DIDATICA_CK"), "loja didatica sem chave cadastrada: erro claro");
 ok(desc("relatorio_vendas").includes("Método de Pagamento, Email, Aluno, Produto, Qtde, Valor") && desc("relatorio_vendas").includes("Responsável e ID produto não entram"), "relatorio_vendas descreve as 9 colunas");
 ok(desc("alterar_preco_parcelas").includes("herda a configuração global") && desc("alterar_preco_parcelas").includes("filtro.parcelas_atuais"), "alterar_preco_parcelas descreve global x sobrescrita");
 
