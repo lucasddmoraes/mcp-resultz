@@ -113,6 +113,14 @@ inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem
 - Cuidado: o B2BKing recomenda limpar os caches dele depois de mudança feita por fora do painel, e a API não faz
   isso. Depois de uma virada, conferir no site se preços e regras do grupo novo aparecem; se não, limpar o cache do
   B2BKing pelo wp-admin.
+- Os grupos de turma do GDV ficam na loja `didatica` (didaticaeducacional.com.br), não em `gdv` nem `sh` (nessas duas
+  nenhum cliente tem grupo). Mapa gravado em 28/10/2026, em ordem de série: 10106 Infantil 2, 10201 Infantil 3, 10202
+  Infantil 4, 10203 Infantil 5, 10204 a 10212 = 1º a 9º Ano EF, 10213 a 10215 = 1ª a 3ª Série EM. Grupos de 11241 em
+  diante (11241, 11244, 12187, 12188, 12189, 12206, 12279) ficam fora de rotinas automatizadas, por decisão do Lucas.
+- Virada padrão: cada grupo de 10106 a 10214 vai para o seguinte; 10215 (3ª Série EM) e os grupos de 11241 em diante
+  não se movem. Não existe grupo de egressos: os formandos continuam na 3ª Série EM.
+- Contas de teste e da agência estão dentro dos grupos e sobem junto na virada (login@resultzads.com e
+  aluno@resultzads.com na 3ª Série EM; contas "Lucas Teste"; financeiro@resultz.com.br no 11244).
 
 ## Detalhes da Sumaré (área `sumare`)
 
@@ -215,6 +223,11 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   não estão nas lojas do GDV nem do Super Humanos (`grupos_clientes` deu 0 clientes em grupo nas duas). Testada com
   `test-offline.mjs` (62). Secrets `WOO_DIDATICA_CK` e `WOO_DIDATICA_CS`
   cadastrados pelo Lucas.
+- Virada de ano 2026 -> 2027 aplicada em 28/10/2026 na loja `didatica` (primeiro uso real de `virada_grupos`): 989
+  clientes movidos, nenhuma falha, código `bc9b1305`, conferida com `grupos_clientes` depois. Resultado: Infantil 2
+  vazio e 3ª Série EM com 218 (126 formandos de 2026 + 92 que subiram). Pendente: Lucas conferir um aluno no site
+  (preços do grupo novo; limpar o cache do B2BKing se preciso) e decidir se cria um grupo de egressos para separar
+  os formandos (agora só por lista de IDs, porque estão no mesmo grupo que a nova 3ª série).
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
