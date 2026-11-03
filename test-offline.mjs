@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.5.0", "versão 1.5.0");
+ok(ini.serverInfo.version === "1.6.0", "versão 1.6.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -291,3 +291,27 @@ ok(!g.erro && g.d.total === 20, "clientes: busca de quem está sem grupo");
 const lgc = await toolArea("lojas", ADMIN, "consultar_log", { ferramenta: "virada_grupos" });
 const regAp = lgc.d.registros.find((x) => x.resultado === "parcial");
 ok(regAp && regAp.usuario === "Editor Lojas" && regAp.motivo === "virada de ano 2027" && regAp.antes.includes('"1":"101"') && !JSON.stringify(lgc.d).includes("@exemplo.com"), "clientes: log com quem, motivo e antes/depois por ID, sem e-mails");
+
+// ---------------------------------------------------------------- acesso de cliente: só consulta e só uma loja
+ac = await toolArea("lojas", ADMIN, "gerenciar_acessos", { acao: "criar", nome: "Cliente Didatica", papel: "leitor", lojas: ["didatica"] });
+const CLI = ac.d.links.lojas.split("/").pop();
+const iniCli = (await rpcArea("lojas", CLI, "initialize", { protocolVersion: "2025-06-18" })).json.result.instructions;
+ok(iniCli.includes("didatica = Didática Educacional") && !/Guilherme|Super Humanos|gdv|loja\.colegio/.test(iniCli), "cliente: instruções só com a loja dele");
+ok(iniCli.includes("só de consulta") && iniCli.includes("1. Nunca invente") && !/virada_grupos|Preço e parcelas|WooCommerce Parcelas/.test(iniCli), "cliente: instruções sem as regras de alteração, numeradas de novo");
+const tlCli = (await rpcArea("lojas", CLI, "tools/list", {})).json.result.tools;
+ok(tlCli.map((x) => x.name).sort().join() === "buscar_produtos,listar_cupons,meu_acesso,relatorio_vendas", `cliente: só ferramentas de consulta (${tlCli.map((x) => x.name).join(", ")})`);
+ok(tlCli.every((x) => !x.inputSchema.properties?.loja || x.inputSchema.properties.loja.enum.join() === "didatica") && !/Guilherme|Super Humanos|"gdv"|"sh"/.test(JSON.stringify(tlCli)), "cliente: schema das ferramentas só com a loja dele");
+let cli = await toolArea("lojas", CLI, "buscar_produtos", { loja: "gdv" });
+ok(cli.erro && cli.d.includes("Use: didatica") && !/\bsh\b|Super Humanos/.test(cli.d), `cliente: outra loja recusada sem revelar as demais (${cli.d})`);
+cli = await toolArea("lojas", CLI, "criar_cupom", { loja: "didatica", motivo: "x" });
+ok(cli.erro && cli.d.includes("sem permissão"), "cliente: ferramenta de escrita recusada");
+cli = await toolArea("lojas", CLI, "meu_acesso", {});
+ok(!cli.erro && cli.d.lojas.join() === "didatica" && !cli.d.limites_editor, "cliente: meu_acesso só com a loja dele e sem limites de editor");
+env.WOO_DIDATICA_CK = "x"; env.WOO_DIDATICA_CS = "y";
+cli = await toolArea("lojas", CLI, "buscar_produtos", { loja: "didatica" });
+ok(!cli.erro, `cliente: consulta na loja dele funciona${cli.erro ? ": " + cli.d : ""}`);
+const tlAdm = (await rpcArea("lojas", ADMIN, "tools/list", {})).json.result.tools;
+const iniAdm = (await rpcArea("lojas", ADMIN, "initialize", { protocolVersion: "2025-06-18" })).json.result.instructions;
+ok(tlAdm.find((x) => x.name === "buscar_produtos").inputSchema.properties.loja.enum.join() === "gdv,sh,didatica" && iniAdm.includes("9. Clientes (B2BKing)") && iniAdm.includes("Super Humanos"), "admin: continua vendo todas as lojas e todas as regras");
+const lgCli = await toolArea("lojas", ADMIN, "consultar_log", {});
+ok(lgCli.d.registros.some((r) => r.usuario === "Cliente Didatica" && r.ferramenta === "buscar_produtos"), "cliente: consultas dele ficam no log");

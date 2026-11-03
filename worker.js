@@ -25,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.5.0";
+const VERSAO = "1.6.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -191,6 +191,9 @@ async function autenticar(env, ctx, token) {
 }
 const temArea = (u, a) => u.areas === "*" || lista(u.areas).includes(a);
 const temLoja = (u, l) => u.lojas === "*" || lista(u.lojas).includes(l);
+// Só as lojas da pessoa aparecem para ela (nas instruções, no schema e nos erros): um cliente de fora com acesso a
+// uma loja não fica sabendo das outras.
+const lojasDe = (u) => Object.keys(LOJAS).filter((l) => temLoja(u, l));
 const podeUsar = (u, papel) => (PAPEIS[u.papel] || 0) >= PAPEIS[papel];
 
 /* ------------------------------------------------------------------ HTTP + MCP */
@@ -279,7 +282,7 @@ async function tratar(msg, c) {
     case "ping":
       return rpcOk(msg.id, {});
     case "tools/list":
-      return rpcOk(msg.id, { tools: ferramentasDe(c).map(descreverFerramenta) });
+      return rpcOk(msg.id, { tools: ferramentasDe(c).map((f) => descreverFerramenta(f, c.usuario)) });
     case "tools/call":
       return rpcOk(msg.id, await chamarFerramenta(p, c));
     default:
@@ -291,12 +294,18 @@ function ferramentasDe(c) {
   return [...c.area.ferramentas, ...FERRAMENTAS_COMUNS].filter((f) => podeUsar(c.usuario, f.papel));
 }
 
-function descreverFerramenta(f) {
+function descreverFerramenta(f, u) {
+  let entrada = f.entrada;
+  if (entrada.properties?.loja === P_LOJA && u.lojas !== "*") {
+    const ls = lojasDe(u);
+    const loja = { type: "string", enum: ls, description: ls.map((k) => `${k} = ${LOJAS[k].nome}`).join("; ") };
+    entrada = { ...entrada, properties: { ...entrada.properties, loja } };
+  }
   return {
     name: f.nome,
     title: f.titulo,
     description: f.descricao,
-    inputSchema: f.entrada,
+    inputSchema: entrada,
     annotations: {
       title: f.titulo,
       readOnlyHint: f.tipo === "leitura",
@@ -328,8 +337,9 @@ async function chamarFerramenta(p, c) {
       if (args[k] === undefined || args[k] === null || args[k] === "") falha(`Parâmetro obrigatório ausente: ${k}`);
     }
     if (args.loja !== undefined) {
-      if (!LOJAS[args.loja]) falha(`Loja inválida: ${args.loja}. Use: ${Object.keys(LOJAS).join(", ")}`);
-      if (!temLoja(c.usuario, args.loja)) falha(`${c.usuario.nome} não tem acesso à loja ${args.loja}.`);
+      if (!LOJAS[args.loja] || !temLoja(c.usuario, args.loja)) {
+        falha(`Loja inválida ou sem acesso para ${c.usuario.nome}: ${args.loja}. Use: ${lojasDe(c.usuario).join(", ")}`);
+      }
     }
     if ((f.tipo === "escrita" || f.exigeMotivo) && !String(args.motivo || "").trim()) {
       falha("Informe o motivo: o pedido do usuário, nas palavras dele.");
@@ -1902,12 +1912,14 @@ const FERRAMENTAS_COMUNS = [
           papel: u.papel,
           areas: u.areas === "*" ? NOMES_AREAS : lista(u.areas),
           ...(c.nomeArea === "lojas" && {
-            lojas: u.lojas === "*" ? Object.keys(LOJAS) : lista(u.lojas),
-            limites_editor: {
-              cupom_max_percentual: cfgNum(c.env, "CUPOM_MAX_PCT_EDITOR", 50),
-              cupom_max_reais: cfgNum(c.env, "CUPOM_MAX_FIXO_EDITOR", 300),
-              cupom_max_usos: cfgNum(c.env, "CUPOM_MAX_USOS_EDITOR", 20),
-            },
+            lojas: lojasDe(u),
+            ...(podeUsar(u, "editor") && {
+              limites_editor: {
+                cupom_max_percentual: cfgNum(c.env, "CUPOM_MAX_PCT_EDITOR", 50),
+                cupom_max_reais: cfgNum(c.env, "CUPOM_MAX_FIXO_EDITOR", 300),
+                cupom_max_usos: cfgNum(c.env, "CUPOM_MAX_USOS_EDITOR", 20),
+              },
+            }),
           }),
           ferramentas: ferramentasDe(c).map((f) => f.nome),
         },
@@ -2112,26 +2124,40 @@ const AREAS = {
   lojas: {
     titulo: "Lojas dos colégios (WooCommerce)",
     ferramentas: [...FERRAMENTAS_LOJAS, ...FERRAMENTAS_CLIENTES],
-    instrucoes: (u, env) =>
-      [
+    instrucoes: (u) => {
+      // [regra, papel mínimo]: quem só consulta não recebe as regras de alteração.
+      const regras = [
+        ["Antes de alterar, localize os itens com buscar_produtos. Se o pedido puder se referir a mais de um produto, pergunte ao usuário qual.", "editor"],
+        ["Nas ferramentas de alteração, preencha 'motivo' com o pedido do usuário nas palavras dele.", "editor"],
+        ["Preço e parcelas: sempre simule primeiro (aplicar=false), mostre o plano e só aplique com confirmação explícita.", "editor"],
+        ["Nunca invente IDs, preços ou códigos: use o que as ferramentas devolverem.", "leitor"],
+        ["Relatórios trazem dados pessoais de famílias: use só para o fim pedido e não repita dados além do necessário.", "leitor"],
+        ["Responda em português do Brasil.", "leitor"],
+        [
+          "Toda leitura e alteração nas lojas passa por este conector, para ficar no log. Nunca use outro caminho (API " +
+            "direta, chave colada no chat, script no navegador logado no wp-admin). Se uma ferramenta falhar, informe o " +
+            "erro e pare.",
+          "leitor",
+        ],
+        [
+          "O plugin WooCommerce Parcelas foi retirado do repositório do WordPress em 26/10/2025 e não recebe mais " +
+            "atualizações; continua funcionando. Só mencione se o assunto surgir.",
+          "editor",
+        ],
+        [
+          "Clientes (B2BKing): grupos_clientes mostra as turmas e quantos clientes há em cada; a virada de ano é com " +
+            "virada_grupos, sempre simulando antes e aplicando só com confirmação explícita, como nos preços.",
+          "editor",
+        ],
+      ].filter(([, papel]) => podeUsar(u, papel));
+      return [
         "Conector das lojas WooCommerce atendidas pela Resultz. Lojas: " +
-          Object.entries(LOJAS).map(([k, l]) => `${k} = ${l.nome} (${l.host})`).join("; ") + ".",
+          lojasDe(u).map((k) => `${k} = ${LOJAS[k].nome} (${LOJAS[k].host})`).join("; ") + ".",
         `Conectado como ${u.nome}, papel ${u.papel}. Toda chamada fica registrada em log de auditoria com esse nome.`,
-        "Regras:",
-        "1. Antes de alterar, localize os itens com buscar_produtos. Se o pedido puder se referir a mais de um produto, pergunte ao usuário qual.",
-        "2. Nas ferramentas de alteração, preencha 'motivo' com o pedido do usuário nas palavras dele.",
-        "3. Preço e parcelas: sempre simule primeiro (aplicar=false), mostre o plano e só aplique com confirmação explícita.",
-        "4. Nunca invente IDs, preços ou códigos: use o que as ferramentas devolverem.",
-        "5. Relatórios trazem dados pessoais de famílias: use só para o fim pedido e não repita dados além do necessário.",
-        "6. Responda em português do Brasil.",
-        "7. Toda leitura e alteração nas lojas passa por este conector, para ficar no log. Nunca use outro caminho (API " +
-          "direta, chave colada no chat, script no navegador logado no wp-admin). Se uma ferramenta falhar, informe o " +
-          "erro e pare.",
-        "8. O plugin WooCommerce Parcelas foi retirado do repositório do WordPress em 26/10/2025 e não recebe mais " +
-          "atualizações; continua funcionando. Só mencione se o assunto surgir.",
-        "9. Clientes (B2BKing): grupos_clientes mostra as turmas e quantos clientes há em cada; a virada de ano é com " +
-          "virada_grupos, sempre simulando antes e aplicando só com confirmação explícita, como nos preços.",
-      ].join("\n"),
+        podeUsar(u, "editor") ? "Regras:" : "Acesso só de consulta: nada pode ser alterado por este conector. Regras:",
+        ...regras.map(([t], i) => `${i + 1}. ${t}`),
+      ].join("\n");
+    },
   },
   midia: criarAreaMidia({ falha, norm, P_MOTIVO, corta }),
   sumare: {

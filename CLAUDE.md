@@ -76,6 +76,11 @@ uma regra, muda aqui, e o merge publica para todo mundo.
 `leitor` (consulta e relatório) < `editor` (status, preço/parcelas, cupom dentro dos limites) < `admin` (tudo,
 inclusive `consultar_log` e `gerenciar_acessos`). Ferramentas acima do papel nem aparecem para a pessoa.
 
+Acesso de cliente de fora (ex.: Didática acompanhando as próprias vendas): papel `leitor`, área `lojas` e `lojas` só com
+a loja dele. Quem tem lista de lojas vê só essas lojas nas instruções, no schema (`loja`) e nos erros, sem saber das
+outras; o `leitor` também não recebe as regras de alteração nem os limites de editor em `meu_acesso`. Ferramentas que
+sobram: `buscar_produtos`, `listar_cupons`, `relatorio_vendas` e `meu_acesso`.
+
 ## Como adicionar uma área nova (ex.: Sumaré)
 
 1. Criar o array de ferramentas da área seguindo o formato de `FERRAMENTAS_LOJAS`
@@ -228,6 +233,10 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   vazio e 3ª Série EM com 218 (126 formandos de 2026 + 92 que subiram). Pendente: Lucas conferir um aluno no site
   (preços do grupo novo; limpar o cache do B2BKing se preciso) e decidir se cria um grupo de egressos para separar
   os formandos (agora só por lista de IDs, porque estão no mesmo grupo que a nova 3ª série).
+- Versão 1.6.0 (03/11/2026): acesso de cliente só de consulta e só da própria loja (para a Didática acompanhar as
+  vendas). Instruções, schema e erros mostram só as lojas da pessoa; leitor não recebe regras de alteração. Testada
+  com `test-offline.mjs` (72 verificações, 10 novas) e `test-midia.mjs` (55). Primeiro acesso: Josemar Leite
+  (josemar.leite@gdv.com.br), leitor, loja `didatica`, criado depois do merge.
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
