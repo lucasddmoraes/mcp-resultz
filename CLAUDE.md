@@ -102,6 +102,12 @@ sobram: `buscar_produtos`, `listar_cupons`, `relatorio_vendas` e `meu_acesso`.
 - Relatório filtra pedidos por produto na API (`product=<id>`) sempre que possível; varrer todos os pedidos é
   lento e estoura o limite de CPU do plano gratuito.
 - Pedidos do e-mail login@resultzads.com ficam fora dos relatórios.
+- Ano letivo (loja `didatica`): as vendas de livros contam por ano letivo, não por ano civil. O ano X vai de 20/11 de
+  X-1 até 19/11 de X (vendas de 2027 abriram em 20/11/2026; anos anteriores com o mesmo corte, por orientação do
+  Lucas). Configurado em `LOJAS.didatica.anoLetivo` (`dia` e `inicios` para um ano com abertura diferente).
+  `relatorio_vendas` aceita `ano_letivo` (o servidor aplica o corte; `data_fim` junto encurta, para comparar até o mesmo
+  dia do ciclo) e, nessa loja, recusa consulta sem ano nem datas pedindo para perguntar o ano. As instruções de quem
+  tem a loja trazem a regra e o ano letivo em andamento.
 
 ## Grupos de clientes (B2BKing, área `lojas`)
 
@@ -237,6 +243,8 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   vendas). Instruções, schema e erros mostram só as lojas da pessoa; leitor não recebe regras de alteração. Testada
   com `test-offline.mjs` (72 verificações, 10 novas) e `test-midia.mjs` (55). Primeiro acesso: Josemar Leite
   (josemar.leite@gdv.com.br), leitor, loja `didatica`, criado depois do merge.
+- Versão 1.7.0 (03/11/2026): ano letivo na loja `didatica` (corte de 20/11) em `relatorio_vendas` e nas instruções.
+  Testada com `test-offline.mjs` (81 verificações, 9 novas) e `test-midia.mjs` (55).
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
