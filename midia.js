@@ -5,9 +5,8 @@
  * Fase 1: só leitura nas plataformas. A única escrita é a ficha do cliente, no D1 do próprio MCP.
  *
  * Secrets:
- *   GOOGLE_SA_JSON                     JSON da conta de serviço (GA4 e GTM)
- *   GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN
- *   GOOGLE_ADS_LOGIN_CUSTOMER_ID       ID da MCC, só números
+ *   GOOGLE_SA_JSON                     JSON da conta de serviço (GA4, GTM e Google Ads; no Ads ela é usuária da MCC)
+ *   GOOGLE_ADS_LOGIN_CUSTOMER_ID       ID da MCC, só números (opcional: padrão é a MCC da Resultz)
  *   META_ACCESS_TOKEN                  usuário do sistema da BM da Resultz
  *   CLOUDFLARE_API_TOKEN               leitura de zonas/Pages e SELECT no D1 de leads dos sites
  * Variáveis opcionais: GOOGLE_ADS_API_VERSION (ex.: v22), GOOGLE_ADS_DEVELOPER_TOKEN, META_API_VERSION (v23.0)
@@ -16,7 +15,7 @@
 const UA = "Mozilla/5.0 (compatible; Resultz-MCP; +https://mcp.resultz.com.br)";
 const CREDENCIAIS = {
   google: ["GOOGLE_SA_JSON"],
-  google_ads: ["GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET", "GOOGLE_ADS_REFRESH_TOKEN"],
+  google_ads: ["GOOGLE_SA_JSON"], // a mesma conta de serviço, adicionada como usuária na MCC
   meta: ["META_ACCESS_TOKEN"],
   cloudflare: ["CLOUDFLARE_API_TOKEN"],
 };
@@ -25,6 +24,8 @@ const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/tagmanager.readonly",
 ];
+const ESCOPOS_ADS = ["https://www.googleapis.com/auth/adwords"];
+const MCC_RESULTZ = "6617080044";
 const GA4_ADMIN = "https://analyticsadmin.googleapis.com";
 const GA4_DATA = "https://analyticsdata.googleapis.com/v1beta";
 const GTM_API = "https://tagmanager.googleapis.com/tagmanager/v2";
@@ -96,7 +97,7 @@ export function criarAreaMidia(h) {
   };
   const b64urlTexto = (t) => b64url(new TextEncoder().encode(t));
 
-  /* ---------------------------------------------------------------- Google (conta de serviço e OAuth do Ads) */
+  /* ---------------------------------------------------------------- Google (conta de serviço: GA4, GTM e Ads) */
 
   const cacheTokens = new Map();
 
@@ -111,15 +112,17 @@ export function criarAreaMidia(h) {
     }
   }
 
-  async function tokenGoogle(env) {
-    const c = cacheTokens.get("sa");
+  // Um token por conjunto de escopos: GA4 e GTM só leem; o Google Ads usa o escopo adwords.
+  async function tokenGoogle(env, escopos = ESCOPOS_GOOGLE) {
+    const chaveCache = escopos.join(" ");
+    const c = cacheTokens.get(chaveCache);
     if (c && c.expira > Date.now() + 60000) return c.token;
     const sa = contaServico(env);
     if (!sa.private_key || !sa.client_email) falha("GOOGLE_SA_JSON sem private_key ou client_email.");
     const aud = sa.token_uri || "https://oauth2.googleapis.com/token";
     const agora = Math.floor(Date.now() / 1000);
     const cab = b64urlTexto(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-    const reivind = b64urlTexto(JSON.stringify({ iss: sa.client_email, scope: ESCOPOS_GOOGLE.join(" "), aud, iat: agora, exp: agora + 3600 }));
+    const reivind = b64urlTexto(JSON.stringify({ iss: sa.client_email, scope: escopos.join(" "), aud, iat: agora, exp: agora + 3600 }));
     const pem = sa.private_key.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
     const der = Uint8Array.from(atob(pem), (ch) => ch.charCodeAt(0));
     const chave = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
@@ -133,32 +136,15 @@ export function criarAreaMidia(h) {
     if (!r.ok || !r.json?.access_token) {
       falha(`O Google recusou a conta de serviço (${r.status}): ${r.json?.error_description || r.json?.error || r.texto.slice(0, 200)}`);
     }
-    cacheTokens.set("sa", { token: r.json.access_token, expira: Date.now() + (r.json.expires_in || 3600) * 1000 });
+    cacheTokens.set(chaveCache, { token: r.json.access_token, expira: Date.now() + (r.json.expires_in || 3600) * 1000 });
     return r.json.access_token;
   }
 
   async function tokenAds(env) {
     exige(env, "google_ads");
-    const c = cacheTokens.get("ads");
-    if (c && c.expira > Date.now() + 60000) return c.token;
-    const r = await pedir("https://oauth2.googleapis.com/token", {
-      metodo: "POST",
-      form: {
-        grant_type: "refresh_token",
-        refresh_token: env.GOOGLE_ADS_REFRESH_TOKEN,
-        client_id: env.GOOGLE_ADS_CLIENT_ID,
-        client_secret: env.GOOGLE_ADS_CLIENT_SECRET,
-      },
-    });
-    if (!r.ok || !r.json?.access_token) {
-      falha(
-        `O Google recusou o OAuth do Google Ads (${r.status}): ${r.json?.error_description || r.json?.error || r.texto.slice(0, 200)}. ` +
-          "Se o refresh token expirou, gere outro no OAuth Playground."
-      );
-    }
-    cacheTokens.set("ads", { token: r.json.access_token, expira: Date.now() + (r.json.expires_in || 3600) * 1000 });
-    return r.json.access_token;
+    return tokenGoogle(env, ESCOPOS_ADS);
   }
+  const mccDe = (env) => idConta(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) || MCC_RESULTZ;
 
   const msgGoogle = (r) => r.json?.error?.message || r.json?.[0]?.error?.message || r.texto.slice(0, 300);
 
@@ -193,7 +179,7 @@ export function criarAreaMidia(h) {
   async function ads(env, metodo, caminho, corpo) {
     const token = await tokenAds(env);
     const cab = { Authorization: `Bearer ${token}` };
-    if (env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) cab["login-customer-id"] = String(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID).replace(/\D/g, "");
+    cab["login-customer-id"] = mccDe(env);
     if (env.GOOGLE_ADS_DEVELOPER_TOKEN) cab["developer-token"] = env.GOOGLE_ADS_DEVELOPER_TOKEN;
     if (env.GOOGLE_ADS_API_VERSION) versaoAds = env.GOOGLE_ADS_API_VERSION;
     if (!versaoAds) {
@@ -221,8 +207,14 @@ export function criarAreaMidia(h) {
     if (ultimo?.ok) return ultimo.json;
     if (ultimo?.texto.includes("CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION")) {
       falha(
-        "O projeto do Google Cloud do OAuth está no nível de teste e não acessa contas reais. " +
-          "Peça o nível Explorer em console.cloud.google.com/google/ads-apis/overview."
+        "O projeto do Google Cloud da conta de serviço está no nível de teste e não acessa contas reais. " +
+          "Peça o nível Basic em console.cloud.google.com/google/ads-apis/overview."
+      );
+    }
+    if (ultimo?.status === 403 || ultimo?.status === 401) {
+      falha(
+        `Google Ads ${ultimo.status}: confira se a conta de serviço é usuária (nível Padrão) da MCC da Resultz (661-708-0044, ou a de ` +
+          `GOOGLE_ADS_LOGIN_CUSTOMER_ID) e se a conta do cliente está ligada a essa MCC. ${msgGoogle(ultimo)}`
       );
     }
     falha(`Google Ads ${ultimo?.status}: ${msgGoogle(ultimo)}`);
@@ -1374,7 +1366,7 @@ export function criarAreaMidia(h) {
       );
     }
     if (temCredencial(env, "google_ads")) {
-      const mcc = idConta(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
+      const mcc = mccDe(env);
       t.push(
         (mcc
           ? secao(falhas, "google_ads", () =>
@@ -1428,10 +1420,10 @@ export function criarAreaMidia(h) {
         })
       );
     }
-    if (ids.ads.size && temCredencial(env, "google_ads") && env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
+    if (ids.ads.size && temCredencial(env, "google_ads")) {
       t.push(
         secao(falhas, "google_ads", async () => {
-          const mcc = idConta(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
+          const mcc = mccDe(env);
           const clientes = await gaql(env, mcc, "SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager FROM customer_client WHERE customer_client.level <= 1");
           for (const l of clientes) {
             const cc = l.customerClient || {};

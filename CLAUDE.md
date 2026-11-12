@@ -46,9 +46,9 @@ O token identifica a pessoa. Token inválido responde 404. `/.well-known/*` resp
   `WOO_DIDATICA_CK`, `WOO_DIDATICA_CS`,
   `SUMARE_API_USER`, `SUMARE_API_PASS` (Basic da API do Dash de Captação da Sumaré). Variável opcional
   `SUMARE_API_URL` (base da API; padrão no código).
-- Secrets da área `midia`: `GOOGLE_SA_JSON` (JSON inteiro da chave da conta de serviço, ou o mesmo em base64),
-  `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (MCC,
-  só números), `META_ACCESS_TOKEN` (usuário do sistema da BM da Resultz) e `CLOUDFLARE_API_TOKEN` (leitura de
+- Secrets da área `midia`: `GOOGLE_SA_JSON` (JSON inteiro da chave da conta de serviço, ou o mesmo em base64; serve
+  para GA4, GTM e Google Ads), `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (MCC, só números; opcional, padrão 6617080044, a MCC da
+  Resultz), `META_ACCESS_TOKEN` (usuário do sistema da BM da Resultz) e `CLOUDFLARE_API_TOKEN` (leitura de
   zonas/Pages e SELECT no D1 de leads dos sites). Opcionais: `GOOGLE_ADS_API_VERSION`, `GOOGLE_ADS_DEVELOPER_TOKEN`,
   `META_API_VERSION` (v23.0).
 - Variáveis opcionais: `ADMIN_NOME`, `BASE_URL`, `CUPOM_MAX_PCT_EDITOR` (50), `CUPOM_MAX_FIXO_EDITOR` (300),
@@ -171,6 +171,11 @@ estrutura e identidade do relatório) está nas instruções da área e nas desc
   API recusou) vira item em `falhas` e não derruba o resto. `partes` limita o que é coletado.
 - Leads reais: `leads.consulta_periodo` da ficha (um único SELECT com origem, midia, campanha, n e `{inicio}`/`{fim}`)
   rodado pela API da Cloudflare no D1 do site do cliente. Só contagens saem; colunas extras são descartadas.
+- Google Ads entra pela mesma conta de serviço (`mcpresultz@resultz-reports.iam.gserviceaccount.com`, projeto
+  `resultz-reports`), adicionada como usuária nível Padrão na MCC da Resultz (661-708-0044), com escopo `adwords` e
+  `login-customer-id` da MCC. Não há refresh token nem OAuth de usuário (o Google passou a exigir chave de acesso para
+  gerar refresh token). Developer token foi descontinuado pelo Google em 09/09/2026; o nível de acesso (Test, Explorer,
+  Basic, Standard) é do projeto do Google Cloud e só Basic ou acima lê contas reais.
 - Google Ads: a versão da API é descoberta sozinha (v26 para trás, uma sondagem por vez) e fica em cache.
 - PDF: o Worker não gera. O Claude de cada pessoa monta o relatório (Artifact ou arquivo) com a identidade descrita
   nas instruções e o logo de `https://mcp.resultz.com.br/marca/`.
@@ -245,6 +250,8 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   (josemar.leite@gdv.com.br), leitor, loja `didatica`, criado depois do merge.
 - Versão 1.7.0 (03/11/2026): ano letivo na loja `didatica` (corte de 20/11) em `relatorio_vendas` e nas instruções.
   Testada com `test-offline.mjs` (81 verificações, 9 novas) e `test-midia.mjs` (55).
+- Versão 1.8.0 (12/11/2026): Google Ads pela conta de serviço (escopo `adwords`, MCC padrão 661-708-0044), sem
+  refresh token. Testada com `test-midia.mjs` (57 verificações) e `test-offline.mjs` (81).
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
