@@ -25,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.6.0";
+const VERSAO = "1.8.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -35,8 +35,25 @@ const NOMES_AREAS = ["lojas", "sumare", "midia"]; // ao criar uma área nova em 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
   sh: { nome: "Colégio Super Humanos", host: "loja.colegiosuperhumanos.com.br", ck: "WOO_SH_CK", cs: "WOO_SH_CS" },
-  didatica: { nome: "Didática Educacional", host: "didaticaeducacional.com.br", ck: "WOO_DIDATICA_CK", cs: "WOO_DIDATICA_CS" },
+  didatica: {
+    nome: "Didática Educacional",
+    host: "didaticaeducacional.com.br",
+    ck: "WOO_DIDATICA_CK",
+    cs: "WOO_DIDATICA_CS",
+    // Vendas por ano letivo: o ano X começa em 20/11 de X-1 (livros de 2027 desde 20/11/2026). Um ano com data de
+    // abertura diferente entra em `inicios` (ex.: { 2026: "2025-11-18" }).
+    anoLetivo: { dia: "11-20", inicios: {} },
+  },
 };
+
+// Primeiro e último dia do ano letivo de uma loja que vende por ciclo (o último é a véspera da abertura seguinte).
+function periodoAnoLetivo(loja, ano) {
+  const cfg = LOJAS[loja].anoLetivo;
+  const inicio = (x) => cfg.inicios[x] || `${x - 1}-${cfg.dia}`;
+  const fim = new Date(Date.parse(inicio(ano + 1) + "T00:00:00Z") - 86400000).toISOString().slice(0, 10);
+  return { inicio: inicio(ano), fim };
+}
+const fmtData = (d) => d.split("-").reverse().join("/");
 
 /* ------------------------------------------------------------------ utilidades */
 
@@ -1035,6 +1052,8 @@ const FERRAMENTAS_LOJAS = [
       "Lista itens vendidos num período, com filtro por produto (texto ou IDs) ou categoria. Por padrão considera só " +
       "pedidos Concluídos, Processando e Aguardando (exclui cancelados, reembolsados e falhos) e ignora pedidos de " +
       "e-mails internos da agência. Extrai o nome do aluno de e-mails @...g12.br; o nome de cobrança é do responsável. " +
+      "Em loja que vende por ano letivo (ver instruções), use ano_letivo em vez de datas: o servidor aplica o corte do " +
+      "ciclo; data_fim junto com ano_letivo encurta o período (para comparar até o mesmo dia do ciclo). " +
       "Devolve resumo completo e as linhas em páginas de 250 (use 'pagina' para as seguintes). Se o usuário não disser " +
       "o ano ou período, pergunte antes: produtos se repetem todo ano. Para planilha, junte todas as páginas e monte " +
       "um .xlsx do seu lado, aba 'Relatório', exatamente com as colunas Pedido, Data, Status, Método de Pagamento, " +
@@ -1046,8 +1065,9 @@ const FERRAMENTAS_LOJAS = [
       type: "object",
       properties: {
         loja: P_LOJA,
-        data_inicio: { type: "string", description: "AAAA-MM-DD" },
-        data_fim: { type: "string", description: "AAAA-MM-DD" },
+        data_inicio: { type: "string", description: "AAAA-MM-DD. Dispensado com ano_letivo." },
+        data_fim: { type: "string", description: "AAAA-MM-DD. Com ano_letivo, só para encurtar o período." },
+        ano_letivo: { type: "integer", description: "Só em loja que vende por ano letivo. Ex.: 2027." },
         produto: { type: "string", description: "Trecho do nome do produto vendido" },
         produto_ids: { type: "array", items: { type: "integer" } },
         categoria: { type: "string", description: "Nome, slug ou ID da categoria" },
@@ -1058,9 +1078,21 @@ const FERRAMENTAS_LOJAS = [
         },
         pagina: { type: "integer", minimum: 1, description: "Página de linhas. Padrão: 1" },
       },
-      required: ["loja", "data_inicio", "data_fim"],
+      required: ["loja"],
     },
     async executar(a, c) {
+      if (a.ano_letivo !== undefined && a.ano_letivo !== null) {
+        const ano = Number(a.ano_letivo);
+        if (!LOJAS[a.loja].anoLetivo) falha(`A loja ${a.loja} não vende por ano letivo: informe data_inicio e data_fim.`);
+        if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) falha("ano_letivo inválido. Ex.: 2027.");
+        const p = periodoAnoLetivo(a.loja, ano);
+        if (a.data_fim && (!dataValida(a.data_fim) || a.data_fim < p.inicio || a.data_fim > p.fim)) {
+          falha(`Com ano_letivo ${ano}, data_fim precisa estar entre ${p.inicio} e ${p.fim}.`);
+        }
+        a = { ...a, ano_letivo: ano, data_inicio: p.inicio, data_fim: a.data_fim || p.fim };
+      } else if (LOJAS[a.loja].anoLetivo && !a.data_inicio && !a.data_fim) {
+        falha("Esta loja vende por ano letivo: pergunte ao usuário de qual ano letivo ele quer saber e use ano_letivo.");
+      }
       if (!dataValida(a.data_inicio) || !dataValida(a.data_fim)) falha("Datas no formato AAAA-MM-DD.");
       const status = Array.isArray(a.status) && a.status.length ? a.status : ["completed", "processing", "on-hold"];
       let idsFiltro = null;
@@ -1167,6 +1199,7 @@ const FERRAMENTAS_LOJAS = [
         dados: {
           loja: a.loja,
           periodo: `${a.data_inicio} a ${a.data_fim}`,
+          ano_letivo: a.ano_letivo ?? null,
           filtros: { produto: a.produto || null, produto_ids: a.produto_ids || null, categoria: catNome, status },
           resumo: {
             pedidos: pedidos.size,
@@ -2154,6 +2187,21 @@ const AREAS = {
         "Conector das lojas WooCommerce atendidas pela Resultz. Lojas: " +
           lojasDe(u).map((k) => `${k} = ${LOJAS[k].nome} (${LOJAS[k].host})`).join("; ") + ".",
         `Conectado como ${u.nome}, papel ${u.papel}. Toda chamada fica registrada em log de auditoria com esse nome.`,
+        ...lojasDe(u)
+          .filter((k) => LOJAS[k].anoLetivo)
+          .map((k) => {
+            const ano = Number(hojeBrasilia().slice(0, 4));
+            const ex = [ano + 1, ano].map((x) => ({ x, ...periodoAnoLetivo(k, x) })).find((p) => p.inicio <= hojeBrasilia()) ||
+              { x: ano, ...periodoAnoLetivo(k, ano) };
+            return (
+              `Vendas de ${k} (${LOJAS[k].nome}) contam por ano letivo, não por ano civil: o ano letivo X vai de ` +
+              `${LOJAS[k].anoLetivo.dia.split("-").reverse().join("/")} de X-1 até a véspera da mesma data em X; os anos ` +
+              `anteriores seguem o mesmo corte. Ano letivo em andamento: ${ex.x} (desde ${fmtData(ex.inicio)}). Sempre que ` +
+              "perguntarem quanto vendeu e não disserem o ano, pergunte de qual ano letivo antes de consultar, e use " +
+              "ano_letivo no relatorio_vendas. Ano civil ou datas soltas só se o usuário pedir. Para comparar o ano em " +
+              "andamento com o anterior, compare até o mesmo dia do ciclo (data_fim um ano antes) e diga isso na resposta."
+            );
+          }),
         podeUsar(u, "editor") ? "Regras:" : "Acesso só de consulta: nada pode ser alterado por este conector. Regras:",
         ...regras.map(([t], i) => `${i + 1}. ${t}`),
       ].join("\n");

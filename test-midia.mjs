@@ -27,7 +27,6 @@ const ADMIN = "M".repeat(40);
 const env = {
   DB, ADMIN_TOKEN: ADMIN, ADMIN_NOME: "Lucas",
   GOOGLE_SA_JSON: JSON.stringify(SA),
-  GOOGLE_ADS_CLIENT_ID: "cid", GOOGLE_ADS_CLIENT_SECRET: "csecret", GOOGLE_ADS_REFRESH_TOKEN: "1//refreshficticio",
   GOOGLE_ADS_LOGIN_CUSTOMER_ID: "111-222-3333",
   META_ACCESS_TOKEN: META_TOKEN, CLOUDFLARE_API_TOKEN: "cf-token-ficticio",
 };
@@ -151,12 +150,12 @@ globalThis.fetch = async (url, init = {}) => {
   const h = init.headers || {};
   if (u.host === "oauth2.googleapis.com") {
     const f = new URLSearchParams(init.body);
-    if (f.get("grant_type") === "refresh_token") return resp(f.get("refresh_token") === env.GOOGLE_ADS_REFRESH_TOKEN ? 200 : 400, { access_token: "ya29.ads", expires_in: 3600 });
     const [a, b, c] = f.get("assertion").split(".");
     const reiv = JSON.parse(Buffer.from(b, "base64url").toString());
     visto.jwtValido = await webcrypto.subtle.verify("RSASSA-PKCS1-v1_5", par.publicKey, Buffer.from(c, "base64url"), new TextEncoder().encode(`${a}.${b}`));
-    visto.escopos = reiv.scope;
-    return visto.jwtValido && reiv.iss === SA.client_email ? resp(200, { access_token: "ya29.sa", expires_in: 3600 }) : resp(400, { error: "invalid_grant" });
+    const ehAds = reiv.scope === "https://www.googleapis.com/auth/adwords";
+    if (ehAds) visto.escoposAds = reiv.scope; else visto.escopos = reiv.scope;
+    return visto.jwtValido && reiv.iss === SA.client_email ? resp(200, { access_token: ehAds ? "ya29.ads" : "ya29.sa", expires_in: 3600 }) : resp(400, { error: "invalid_grant" });
   }
   if (u.host === "analyticsadmin.googleapis.com") {
     if (h.Authorization !== "Bearer ya29.sa") return resp(401, { error: { message: "sem token" } });
@@ -302,6 +301,7 @@ ok(!x.erro && x.d.config.falhas.fluxos?.includes("claude-tagueamento@resultz.iam
 // Google Ads
 x = await t("tag_google_ads", { cliente: "exemplo" });
 ok(!x.erro && x.d.versao_api === "v24" && visto.versoes.slice(0, 3).join() === "v26,v25,v24" && visto.loginCustomer === "1112223333", "google ads: descobre a versão da API e usa a MCC");
+ok(visto.escoposAds === "https://www.googleapis.com/auth/adwords", "google ads: entra pela conta de serviço com o escopo adwords (sem refresh token)");
 ok(x.d.conta.autoTaggingEnabled === true && x.d.acoes_conversao.length === 2 && x.d.campanhas[0].lance === "MAXIMIZE_CONVERSIONS", "tag_google_ads: conta, ações de conversão e lances");
 x = await t("midia_google", { cliente: "exemplo" });
 const pesq = x.d.campanhas?.find((c) => c.id === "10");
@@ -375,6 +375,9 @@ ok(!x.erro && x.d.ficha.site.plataforma === "cloudflare-pages" && x.d.ficha.clou
 // nenhum segredo nas respostas nem no log
 const lg = await t("consultar_log", { limite: 500 });
 const tudo = saidas.join("\n") + JSON.stringify(lg.d);
-const segredos = ["EAApagina", META_TOKEN, "ya29.sa", "ya29.ads", "csecret", "1//refreshficticio", "cf-token-ficticio", pkcs8.slice(10, 50)];
+const segredos = ["EAApagina", META_TOKEN, "ya29.sa", "ya29.ads", "cf-token-ficticio", pkcs8.slice(10, 50)];
 ok(segredos.every((s) => !tudo.includes(s)), "nenhum token, chave ou segredo aparece nas respostas nem no log");
 ok(lg.d.registros.some((y) => y.ferramenta === "midia_salvar_cliente" && y.resultado === "ok" && y.depois?.includes("GTM-TESTE01")), "log: ficha salva com antes/depois");
+delete env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+x = await t("tag_google_ads", { cliente: "exemplo" });
+ok(!x.erro && visto.loginCustomer === "6617080044", "google ads: sem GOOGLE_ADS_LOGIN_CUSTOMER_ID usa a MCC da Resultz");
