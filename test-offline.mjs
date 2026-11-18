@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.9.1", "versão 1.9.1");
+ok(ini.serverInfo.version === "1.9.2", "versão 1.9.2");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -316,7 +316,7 @@ ok(tlAdm.find((x) => x.name === "buscar_produtos").inputSchema.properties.loja.e
 const lgCli = await toolArea("lojas", ADMIN, "consultar_log", {});
 ok(lgCli.d.registros.some((r) => r.usuario === "Cliente Didatica" && r.ferramenta === "buscar_produtos"), "cliente: consultas dele ficam no log");
 
-// ---------------------------------------------------------------- ano letivo (Didática): corte de 28/11
+// ---------------------------------------------------------------- ano letivo (Didática): corte de 28/10
 const consultasPedidos = [];
 const fetchAntesPedidos = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
@@ -331,21 +331,21 @@ globalThis.fetch = async (url, init = {}) => {
 };
 const hojeLetivo = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 const anoHoje = Number(hojeLetivo.slice(0, 4));
-const emAndamento = hojeLetivo >= `${anoHoje}-11-28` ? anoHoje + 1 : anoHoje;
+const emAndamento = hojeLetivo >= `${anoHoje}-10-28` ? anoHoje + 1 : anoHoje;
 const iniCli2 = (await rpcArea("lojas", CLI, "initialize", { protocolVersion: "2025-06-18" })).json.result.instructions;
-ok(iniCli2.includes("contam por ano letivo") && iniCli2.includes("28/11 de X-1") && iniCli2.includes(`Ano letivo em andamento: ${emAndamento}`), `ano letivo: regra nas instruções do cliente (em andamento ${emAndamento})`);
+ok(iniCli2.includes("contam por ano letivo") && iniCli2.includes("28/10 de X-1") && iniCli2.includes(`Ano letivo em andamento: ${emAndamento}`), `ano letivo: regra nas instruções do cliente (em andamento ${emAndamento})`);
 const iniLeil = (await rpcArea("lojas", LEIL, "initialize", { protocolVersion: "2025-06-18" })).json.result.instructions;
 ok(!iniLeil.includes("ano letivo"), "ano letivo: quem não tem a loja didatica não recebe a regra");
 let rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica" });
 ok(rv.erro && rv.d.includes("pergunte ao usuário de qual ano letivo"), "ano letivo: sem ano nem datas, pede para perguntar o ano");
 rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica", ano_letivo: 2027 });
-ok(!rv.erro && rv.d.periodo === "2026-11-28 a 2027-11-27" && rv.d.ano_letivo === 2027 && consultasPedidos.at(-1).after === "2026-11-28T00:00:00" && consultasPedidos.at(-1).before === "2027-11-27T23:59:59" && rv.d.resumo.receita === "250", `ano letivo 2027: ${rv.erro ? rv.d : rv.d.periodo}`);
+ok(!rv.erro && rv.d.periodo === "2026-10-28 a 2027-10-27" && rv.d.ano_letivo === 2027 && consultasPedidos.at(-1).after === "2026-10-28T00:00:00" && consultasPedidos.at(-1).before === "2027-10-27T23:59:59" && rv.d.resumo.receita === "250", `ano letivo 2027: ${rv.erro ? rv.d : rv.d.periodo}`);
 rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica", ano_letivo: 2026 });
-ok(!rv.erro && rv.d.periodo === "2025-11-28 a 2026-11-27", `ano letivo 2026 com o mesmo corte: ${rv.erro ? rv.d : rv.d.periodo}`);
+ok(!rv.erro && rv.d.periodo === "2025-10-28 a 2026-10-27", `ano letivo 2026 com o mesmo corte: ${rv.erro ? rv.d : rv.d.periodo}`);
 rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica", ano_letivo: 2026, data_fim: "2025-12-05" });
-ok(!rv.erro && rv.d.periodo === "2025-11-28 a 2025-12-05", "ano letivo: data_fim encurta para comparar até o mesmo dia do ciclo");
-rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica", ano_letivo: 2027, data_fim: "2026-11-01" });
-ok(rv.erro && rv.d.includes("entre 2026-11-28 e 2027-11-27"), "ano letivo: data_fim fora do ciclo é recusada");
+ok(!rv.erro && rv.d.periodo === "2025-10-28 a 2025-12-05", "ano letivo: data_fim encurta para comparar até o mesmo dia do ciclo");
+rv = await toolArea("lojas", CLI, "relatorio_vendas", { loja: "didatica", ano_letivo: 2027, data_fim: "2026-10-01" });
+ok(rv.erro && rv.d.includes("entre 2026-10-28 e 2027-10-27"), "ano letivo: data_fim fora do ciclo é recusada");
 rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "gdv", ano_letivo: 2027 });
 ok(rv.erro && rv.d.includes("não vende por ano letivo"), "ano letivo: loja sem ciclo recusa ano_letivo");
 rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "didatica", data_inicio: "2026-01-01", data_fim: "2026-12-31" });
