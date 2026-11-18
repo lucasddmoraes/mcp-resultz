@@ -25,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.9.2";
+const VERSAO = "1.10.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -39,8 +39,9 @@ const LOJAS = {
     host: "loja.colegiosuperhumanos.com.br",
     ck: "WOO_SH_CK",
     cs: "WOO_SH_CS",
-    // Kits de 2027 à venda desde 29/10/2026.
-    anoLetivo: { dia: "10-29", inicios: {}, nota: "Os kits de livros ficam na categoria Material Didático (um kit por série)." },
+    // Só a categoria Material Didático (kits de livros, um por série) vende por ano letivo: kits de 2027 desde
+    // 29/10/2026. Os demais produtos contam por ano civil.
+    anoLetivo: { dia: "10-29", inicios: {}, categoria: "Material Didático" },
   },
   didatica: {
     nome: "Didática Educacional",
@@ -1078,6 +1079,7 @@ const FERRAMENTAS_LOJAS = [
         produto: { type: "string", description: "Trecho do nome do produto vendido" },
         produto_ids: { type: "array", items: { type: "integer" } },
         categoria: { type: "string", description: "Nome, slug ou ID da categoria" },
+        excluir_categoria: { type: "string", description: "Deixa de fora os produtos desta categoria (nome, slug ou ID)" },
         status: {
           type: "array",
           items: { type: "string", enum: Object.keys(STATUS_PEDIDO) },
@@ -1096,9 +1098,17 @@ const FERRAMENTAS_LOJAS = [
         if (a.data_fim && (!dataValida(a.data_fim) || a.data_fim < p.inicio || a.data_fim > p.fim)) {
           falha(`Com ano_letivo ${ano}, data_fim precisa estar entre ${p.inicio} e ${p.fim}.`);
         }
-        a = { ...a, ano_letivo: ano, data_inicio: p.inicio, data_fim: a.data_fim || p.fim };
+        // Loja em que só uma categoria segue o ano letivo: o relatório fica restrito a ela.
+        const catCiclo = LOJAS[a.loja].anoLetivo.categoria;
+        a = { ...a, ano_letivo: ano, data_inicio: p.inicio, data_fim: a.data_fim || p.fim, ...(catCiclo && { categoria: a.categoria || catCiclo }) };
       } else if (LOJAS[a.loja].anoLetivo && !a.data_inicio && !a.data_fim) {
-        falha("Esta loja vende por ano letivo: pergunte ao usuário de qual ano letivo ele quer saber e use ano_letivo.");
+        const catCiclo = LOJAS[a.loja].anoLetivo.categoria;
+        falha(
+          catCiclo
+            ? `Nesta loja, só ${catCiclo} conta por ano letivo (use ano_letivo); os demais produtos contam por ano civil ` +
+                "(data_inicio e data_fim de 01/01 a 31/12). Pergunte ao usuário o ano e o que ele quer ver."
+            : "Esta loja vende por ano letivo: pergunte ao usuário de qual ano letivo ele quer saber e use ano_letivo."
+        );
       }
       if (!dataValida(a.data_inicio) || !dataValida(a.data_fim)) falha("Datas no formato AAAA-MM-DD.");
       const status = Array.isArray(a.status) && a.status.length ? a.status : ["completed", "processing", "on-hold"];
@@ -1106,12 +1116,23 @@ const FERRAMENTAS_LOJAS = [
       let catNome = null;
       if (a.categoria) {
         const cat = await resolverCategoria(c.env, a.loja, a.categoria);
+        const catCiclo = a.ano_letivo && LOJAS[a.loja].anoLetivo?.categoria;
+        if (catCiclo && norm(cat.nome) !== norm(catCiclo)) {
+          falha(`Na loja ${a.loja}, o ano letivo vale só para ${catCiclo}. Para ${cat.nome}, use data_inicio e data_fim do ano civil.`);
+        }
         catNome = cat.nome;
         idsFiltro = new Set((await produtosDaCategoria(c.env, a.loja, cat.id, "any")).map((p) => p.id));
       }
       if (Array.isArray(a.produto_ids) && a.produto_ids.length) {
         const s = new Set(a.produto_ids.map(Number));
         idsFiltro = idsFiltro ? new Set([...idsFiltro].filter((x) => s.has(x))) : s;
+      }
+      let idsExcluir = null;
+      let catExcluida = null;
+      if (a.excluir_categoria) {
+        const cat = await resolverCategoria(c.env, a.loja, a.excluir_categoria);
+        catExcluida = cat.nome;
+        idsExcluir = new Set((await produtosDaCategoria(c.env, a.loja, cat.id, "any")).map((p) => p.id));
       }
       const termo = a.produto ? norm(a.produto) : null;
       let filtrarNome = !!termo;
@@ -1168,6 +1189,7 @@ const FERRAMENTAS_LOJAS = [
         }
         for (const it of o.line_items || []) {
           if (idsFiltro && !idsFiltro.has(it.product_id)) continue;
+          if (idsExcluir && idsExcluir.has(it.product_id)) continue;
           if (filtrarNome && !norm(it.name).includes(termo)) continue;
           linhas.push([
             String(o.number || o.id),
@@ -1207,7 +1229,7 @@ const FERRAMENTAS_LOJAS = [
           loja: a.loja,
           periodo: `${a.data_inicio} a ${a.data_fim}`,
           ano_letivo: a.ano_letivo ?? null,
-          filtros: { produto: a.produto || null, produto_ids: a.produto_ids || null, categoria: catNome, status },
+          filtros: { produto: a.produto || null, produto_ids: a.produto_ids || null, categoria: catNome, excluir_categoria: catExcluida, status },
           resumo: {
             pedidos: pedidos.size,
             itens: linhas.length,
@@ -2200,14 +2222,25 @@ const AREAS = {
             const ano = Number(hojeBrasilia().slice(0, 4));
             const ex = [ano + 1, ano].map((x) => ({ x, ...periodoAnoLetivo(k, x) })).find((p) => p.inicio <= hojeBrasilia()) ||
               { x: ano, ...periodoAnoLetivo(k, ano) };
+            const cat = LOJAS[k].anoLetivo.categoria;
             return (
-              `Vendas de ${k} (${LOJAS[k].nome}) contam por ano letivo, não por ano civil: o ano letivo X vai de ` +
+              (cat
+                ? `Na loja ${k} (${LOJAS[k].nome}), só as vendas da categoria ${cat} contam por ano letivo; os demais ` +
+                  "produtos contam por ano civil (01/01 a 31/12 do ano pedido, com data_inicio e data_fim). Ano letivo de " +
+                  `${cat}: o ano X vai de `
+                : `Vendas de ${k} (${LOJAS[k].nome}) contam por ano letivo, não por ano civil: o ano letivo X vai de `) +
               `${LOJAS[k].anoLetivo.dia.split("-").reverse().join("/")} de X-1 até a véspera da mesma data em X; os anos ` +
               `anteriores seguem o mesmo corte. Ano letivo em andamento: ${ex.x} (desde ${fmtData(ex.inicio)}). Sempre que ` +
               "perguntarem quanto vendeu e não disserem o ano, pergunte de qual ano letivo antes de consultar, e use " +
-              "ano_letivo no relatorio_vendas. Ano civil ou datas soltas só se o usuário pedir. Para comparar o ano em " +
+              "ano_letivo no relatorio_vendas" +
+              (cat ? ` para ${cat}. ` : ". Ano civil ou datas soltas só se o usuário pedir. ") +
+              "Para comparar o ano em " +
               "andamento com o anterior, compare até o mesmo dia do ciclo (data_fim um ano antes) e diga isso na resposta." +
-              (LOJAS[k].anoLetivo.nota ? " " + LOJAS[k].anoLetivo.nota : "")
+              (cat
+                ? ` Com ano_letivo, o relatório já fica só em ${cat}. Pedido da loja inteira num ano: duas consultas, ${cat} ` +
+                  `pelo ano letivo e o resto pelo ano civil com excluir_categoria="${cat}" (para não contar duas vezes), e ` +
+                  "diga isso na resposta."
+                : "")
             );
           }),
         podeUsar(u, "editor") ? "Regras:" : "Acesso só de consulta: nada pode ser alterado por este conector. Regras:",
