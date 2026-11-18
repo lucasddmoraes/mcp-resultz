@@ -25,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.9.0";
+const VERSAO = "1.9.1";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -47,9 +47,9 @@ const LOJAS = {
     host: "didaticaeducacional.com.br",
     ck: "WOO_DIDATICA_CK",
     cs: "WOO_DIDATICA_CS",
-    // Vendas por ano letivo: o ano X começa em 20/11 de X-1 (livros de 2027 desde 20/11/2026). Um ano com data de
+    // Vendas por ano letivo: o ano X começa em 28/11 de X-1 (corte definido pelo Lucas em 18/11/2026). Um ano com data de
     // abertura diferente entra em `inicios` (ex.: { 2026: "2025-11-18" }).
-    anoLetivo: { dia: "11-20", inicios: {} },
+    anoLetivo: { dia: "11-28", inicios: {} },
   },
 };
 
