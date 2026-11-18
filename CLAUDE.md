@@ -109,8 +109,12 @@ sobram: `buscar_produtos`, `listar_cupons`, `relatorio_vendas` e `meu_acesso`.
   `relatorio_vendas` aceita `ano_letivo` (o servidor aplica o corte; `data_fim` junto encurta, para comparar até o mesmo
   dia do ciclo) e, nessa loja, recusa consulta sem ano nem datas pedindo para perguntar o ano. As instruções de quem
   tem a loja trazem a regra e o ano letivo em andamento.
-- Ano letivo (loja `sh`, Colégio Super Humanos): mesmo esquema, com corte em 29/10 (kits de 2027 à venda desde
-  29/10/2026). Os livros são kits por série na categoria "Material Didático" (`anoLetivo.nota` vai para as instruções).
+- Ano letivo (loja `sh`, Colégio Super Humanos): só a categoria "Material Didático" (kits de livros, um por série)
+  conta por ano letivo, com corte em 29/10 (kits de 2027 à venda desde 29/10/2026); os demais produtos contam por ano
+  civil. Configurado em `LOJAS.sh.anoLetivo.categoria`. Com `ano_letivo`, o relatório fica restrito a essa categoria
+  (outra categoria é recusada). Loja inteira num ano = duas consultas: Material Didático pelo ano letivo e o resto pelo
+  ano civil com `excluir_categoria`, para não contar duas vezes.
+- Loja `gdv`: sem ciclo, vendas por ano civil (definido pelo Lucas em 18/11/2026).
 
 ## Grupos de clientes (B2BKing, área `lojas`)
 
@@ -261,6 +265,10 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   `test-offline.mjs` (85) e `test-midia.mjs` (57).
 - Versão 1.9.2 (18/11/2026): corte do ano letivo da `didatica` passa para 28/10. Testada com `test-offline.mjs` (85) e
   `test-midia.mjs` (57).
+- Versão 1.10.0 (18/11/2026): na loja `sh`, ano letivo só para Material Didático; demais produtos por ano civil.
+  `relatorio_vendas` ganha `excluir_categoria`. Testada com `test-offline.mjs` (91) e `test-midia.mjs` (57).
+- Acessos de cliente em 18/11/2026: Josemar Leite (`didatica`, `gdv`) e Fernando (`didatica`, `sh`, `gdv`), ambos
+  leitor na área `lojas`. Fernando pode usar pelo ChatGPT (modo desenvolvedor, URL com `/mcp`, sem autenticação).
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
