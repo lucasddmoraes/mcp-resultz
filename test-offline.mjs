@@ -44,7 +44,7 @@ async function call(method, params) {
 async function tool(name, args) { const r = await call("tools/call", { name, arguments: args }); let d; try { d = JSON.parse(r.content[0].text); } catch { d = r.content[0].text; } return { erro: !!r.isError, d }; }
 
 const ini = await call("initialize", { protocolVersion: "2025-06-18" });
-ok(ini.serverInfo.version === "1.8.0", "versão 1.8.0");
+ok(ini.serverInfo.version === "1.9.0", "versão 1.9.0");
 ok(ini.instructions.includes("Nunca use outro caminho") && ini.instructions.includes("26/10/2025"), "instruções novas (rota única e aviso do plugin)");
 const tl = await call("tools/list", {});
 const desc = (nm) => tl.tools.find((t) => t.name === nm).description;
@@ -350,3 +350,13 @@ rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "gdv", ano_letiv
 ok(rv.erro && rv.d.includes("não vende por ano letivo"), "ano letivo: loja sem ciclo recusa ano_letivo");
 rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "didatica", data_inicio: "2026-01-01", data_fim: "2026-12-31" });
 ok(!rv.erro && rv.d.periodo === "2026-01-01 a 2026-12-31" && rv.d.ano_letivo === null, "ano letivo: datas soltas continuam valendo quando pedidas");
+// loja sh: corte de 29/10
+const emAndamentoSh = hojeLetivo >= `${anoHoje}-10-29` ? anoHoje + 1 : anoHoje;
+const iniAdmSh = (await rpcArea("lojas", ADMIN, "initialize", { protocolVersion: "2025-06-18" })).json.result.instructions;
+ok(iniAdmSh.includes("Vendas de sh (Colégio Super Humanos) contam por ano letivo") && iniAdmSh.includes("29/10 de X-1") && iniAdmSh.includes(`Ano letivo em andamento: ${emAndamentoSh}`) && iniAdmSh.includes("categoria Material Didático"), `ano letivo sh: regra e nota nas instruções (em andamento ${emAndamentoSh})`);
+env.WOO_SH_CK = "x"; env.WOO_SH_CS = "y";
+rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "sh", ano_letivo: 2027 });
+ok(!rv.erro && rv.d.periodo === "2026-10-29 a 2027-10-28" && consultasPedidos.at(-1).after === "2026-10-29T00:00:00", `ano letivo sh 2027: ${rv.erro ? rv.d : rv.d.periodo}`);
+rv = await toolArea("lojas", ADMIN, "relatorio_vendas", { loja: "sh" });
+ok(rv.erro && rv.d.includes("pergunte ao usuário de qual ano letivo"), "ano letivo sh: sem ano nem datas, pede para perguntar o ano");
+ok(!iniCli2.includes("Super Humanos"), "ano letivo sh: cliente só da Didática continua sem ver a loja sh");

@@ -25,7 +25,7 @@
 
 import { criarAreaMidia } from "./midia.js";
 
-const VERSAO = "1.8.0";
+const VERSAO = "1.9.0";
 const PROTOCOLOS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const PAPEIS = { leitor: 1, editor: 2, admin: 3 };
 const ALFA62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -34,7 +34,14 @@ const NOMES_AREAS = ["lojas", "sumare", "midia"]; // ao criar uma área nova em 
 
 const LOJAS = {
   gdv: { nome: "Colégio Guilherme Dumont Villares", host: "loja.gdv.com.br", ck: "WOO_GDV_CK", cs: "WOO_GDV_CS" },
-  sh: { nome: "Colégio Super Humanos", host: "loja.colegiosuperhumanos.com.br", ck: "WOO_SH_CK", cs: "WOO_SH_CS" },
+  sh: {
+    nome: "Colégio Super Humanos",
+    host: "loja.colegiosuperhumanos.com.br",
+    ck: "WOO_SH_CK",
+    cs: "WOO_SH_CS",
+    // Kits de 2027 à venda desde 29/10/2026.
+    anoLetivo: { dia: "10-29", inicios: {}, nota: "Os kits de livros ficam na categoria Material Didático (um kit por série)." },
+  },
   didatica: {
     nome: "Didática Educacional",
     host: "didaticaeducacional.com.br",
@@ -2199,7 +2206,8 @@ const AREAS = {
               `anteriores seguem o mesmo corte. Ano letivo em andamento: ${ex.x} (desde ${fmtData(ex.inicio)}). Sempre que ` +
               "perguntarem quanto vendeu e não disserem o ano, pergunte de qual ano letivo antes de consultar, e use " +
               "ano_letivo no relatorio_vendas. Ano civil ou datas soltas só se o usuário pedir. Para comparar o ano em " +
-              "andamento com o anterior, compare até o mesmo dia do ciclo (data_fim um ano antes) e diga isso na resposta."
+              "andamento com o anterior, compare até o mesmo dia do ciclo (data_fim um ano antes) e diga isso na resposta." +
+              (LOJAS[k].anoLetivo.nota ? " " + LOJAS[k].anoLetivo.nota : "")
             );
           }),
         podeUsar(u, "editor") ? "Regras:" : "Acesso só de consulta: nada pode ser alterado por este conector. Regras:",

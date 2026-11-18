@@ -108,6 +108,8 @@ sobram: `buscar_produtos`, `listar_cupons`, `relatorio_vendas` e `meu_acesso`.
   `relatorio_vendas` aceita `ano_letivo` (o servidor aplica o corte; `data_fim` junto encurta, para comparar até o mesmo
   dia do ciclo) e, nessa loja, recusa consulta sem ano nem datas pedindo para perguntar o ano. As instruções de quem
   tem a loja trazem a regra e o ano letivo em andamento.
+- Ano letivo (loja `sh`, Colégio Super Humanos): mesmo esquema, com corte em 29/10 (kits de 2027 à venda desde
+  29/10/2026). Os livros são kits por série na categoria "Material Didático" (`anoLetivo.nota` vai para as instruções).
 
 ## Grupos de clientes (B2BKing, área `lojas`)
 
@@ -252,6 +254,8 @@ Variables and Secrets). Nunca pedir que ele cole valores de segredo no chat nem 
   Testada com `test-offline.mjs` (81 verificações, 9 novas) e `test-midia.mjs` (55).
 - Versão 1.8.0 (12/11/2026): Google Ads pela conta de serviço (escopo `adwords`, MCC padrão 661-708-0044), sem
   refresh token. Testada com `test-midia.mjs` (57 verificações) e `test-offline.mjs` (81).
+- Versão 1.9.0 (18/11/2026): ano letivo na loja `sh` (corte de 29/10). Testada com `test-offline.mjs` (85 verificações)
+  e `test-midia.mjs` (57).
 - Pendente: liberar a área `sumare` para quem precisa (`gerenciar_acessos`, acao `alterar`, informando todas as
   áreas da pessoa, porque a lista é substituída).
 
